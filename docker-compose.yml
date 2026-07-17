@@ -80,7 +80,11 @@ services:
       retries: 12
       start_period: 40s
     command: >
-      sh -c "python -m app.seed || echo 'SEED WARN: continuing';
+      sh -c "find /app -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true;
+             find /app -name '*.pyc' -delete 2>/dev/null || true;
+             echo '--- models Answer FKs ---';
+             python -c \"from app.models import Answer; print([fk.target_fullname for fk in Answer.__table__.foreign_keys]); assert len(list(Answer.__table__.foreign_keys))==1, 'DUAL FK STILL PRESENT';\";
+             python -m app.seed || echo 'SEED WARN: continuing';
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   worker:
