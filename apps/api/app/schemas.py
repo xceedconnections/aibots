@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from app.models import ActionType, CallStatus
 
 
 # ---- Auth ----
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Plain str — allow admin@aibots.local (EmailStr rejects .local reserved TLD)
+    email: str = Field(min_length=3, max_length=255)
     password: str
 
 
