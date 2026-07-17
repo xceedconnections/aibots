@@ -56,9 +56,12 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aibots:aibots_secure_pass@postgres:5432/aibots}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@aibots.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
     ports:
       - "8000:8000"
     volumes:
