@@ -23,19 +23,26 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
+    if not plain or not hashed:
+        return False
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        hashed_bytes = hashed.encode("utf-8") if isinstance(hashed, str) else hashed
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed_bytes)
     except Exception:
         return False
 
 
 def create_access_token(subject: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    return jwt.encode(
+    token = jwt.encode(
         {"sub": subject, "exp": expire},
         settings.secret_key,
         algorithm=ALGORITHM,
     )
+    # python-jose may return bytes
+    if isinstance(token, bytes):
+        return token.decode("utf-8")
+    return token
 
 
 async def get_current_user(

@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 
@@ -18,6 +19,9 @@ async def get_db():
         try:
             yield session
             await session.commit()
+        except StarletteHTTPException:
+            await session.rollback()
+            raise
         except Exception:
             await session.rollback()
             raise
