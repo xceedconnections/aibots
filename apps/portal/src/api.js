@@ -1,28 +1,9 @@
 /**
- * Resolve API base URL at runtime from the browser location.
- * Avoids baked-in localhost and avoids portal-nginx 502 when DNS to `api` fails.
+ * Always use same-origin /api proxy.
+ * Works on :80 (main nginx) and :3000 (portal nginx) without exposing port 8000
+ * to the public internet (often blocked on cloud firewalls like Hetzner).
  */
-function resolveApiUrl() {
-  const env = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '')
-  if (
-    env &&
-    !env.includes('localhost') &&
-    !env.includes('127.0.0.1') &&
-    !env.includes('YOUR_SERVER_IP')
-  ) {
-    return env
-  }
-
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location
-    // Direct to exposed API port (docker maps 8000:8000)
-    return `${protocol}//${hostname}:8000`
-  }
-
-  return 'http://127.0.0.1:8000'
-}
-
-const API_URL = resolveApiUrl()
+const API_URL = '/api'
 
 function getToken() {
   return localStorage.getItem('aibots_token')
@@ -53,7 +34,13 @@ async function request(path, options = {}) {
     res = await fetch(`${API_URL}${path}`, { ...options, headers })
   } catch (err) {
     throw new Error(
-      `Cannot reach API at ${API_URL}${path}. Is aibots-api running? Try: curl ${API_URL}/health`
+      `Cannot reach API (${API_URL}${path}). On the server run: curl -s http://127.0.0.1:8000/health && docker logs --tail 50 aibots-api`
+    )
+  }
+
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    throw new Error(
+      `API gateway error (${res.status}). Is aibots-api running? On server: docker logs --tail 50 aibots-api`
     )
   }
 

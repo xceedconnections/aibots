@@ -178,4 +178,8 @@ async def seed():
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    try:
+        asyncio.run(seed())
+    except Exception:
+        logger.exception("Seed failed — API will still try to start")
+        raise
