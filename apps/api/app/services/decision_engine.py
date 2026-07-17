@@ -1,8 +1,6 @@
 """
 Deterministic conversation decision engine.
-
-Flow control lives here. The LLM is only used as a fallback NLU
-when keyword matching is inconclusive.
+Answers loaded via explicit queries (no Question.answers relationship).
 """
 from __future__ import annotations
 
@@ -12,8 +10,8 @@ from typing import Optional
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from app.bot_loader import load_answers
 from app.config import get_settings
 from app.models import ActionType, Answer, Bot, CallSession, CallStatus, Question
 from app.schemas import DecisionResult
@@ -28,7 +26,6 @@ def normalize_text(text: str) -> str:
 
 
 def keyword_match(transcript: str, keywords: list[str]) -> float:
-    """Return confidence 0-1 based on keyword hits."""
     if not keywords:
         return 0.0
     norm = normalize_text(transcript)
@@ -55,7 +52,6 @@ async def llm_classify_intent(
     model: str,
     temperature: float,
 ) -> tuple[Optional[str], float]:
-    """Ask local Ollama to pick an intent. Returns (intent, confidence)."""
     if not intents:
         return None, 0.0
 
@@ -87,26 +83,19 @@ async def llm_classify_intent(
             for intent in intents:
                 if intent.upper() in raw or raw in intent.upper():
                     return intent, 0.75
-            if "UNKNOWN" in raw:
-                return None, 0.0
             return None, 0.0
     except Exception:
         return None, 0.0
 
 
 async def load_question(db: AsyncSession, question_id: int) -> Optional[Question]:
-    result = await db.execute(
-        select(Question)
-        .options(selectinload(Question.answers))
-        .where(Question.id == question_id)
-    )
+    result = await db.execute(select(Question).where(Question.id == question_id))
     return result.scalar_one_or_none()
 
 
 async def get_start_question(db: AsyncSession, bot_id: int) -> Optional[Question]:
     result = await db.execute(
         select(Question)
-        .options(selectinload(Question.answers))
         .where(Question.bot_id == bot_id)
         .order_by(Question.is_start.desc(), Question.sort_order.asc())
     )
@@ -143,7 +132,6 @@ async def process_turn(
     history.append({"role": "user", "text": transcript})
 
     if not session.current_question_id:
-        # No more questions — transfer if we have transfer campaign
         reply = "Thank you. Please hold while I connect you with a specialist."
         history.append({"role": "bot", "text": reply})
         session.transcript = history
@@ -163,10 +151,9 @@ async def process_turn(
         session.status = CallStatus.FAILED
         return DecisionResult(action=ActionType.HANGUP, reply_text=reply, done=True)
 
-    answers = list(question.answers or [])
+    answers = await load_answers(db, question.id)
     matched, confidence = pick_best_answer(transcript, answers)
 
-    # LLM fallback when keyword confidence is low
     if (matched is None or confidence < 0.55) and answers:
         intents = [a.intent for a in answers]
         llm_intent, llm_conf = await llm_classify_intent(
@@ -183,7 +170,6 @@ async def process_turn(
                     confidence = llm_conf
                     break
 
-    # Still unclear — ask again
     if matched is None or confidence < 0.45:
         session.retry_count = (session.retry_count or 0) + 1
         max_retries = question.max_retries or settings.max_question_retries
@@ -212,7 +198,6 @@ async def process_turn(
             confidence=confidence,
         )
 
-    # Matched answer — apply action
     session.retry_count = 0
     if question.variable_name:
         value = matched.store_value if matched.store_value is not None else matched.intent
@@ -266,15 +251,12 @@ async def process_turn(
             variables=variables,
         )
 
-    # CONTINUE / STORE → next question
     next_q: Optional[Question] = None
     if matched.next_question_id:
         next_q = await load_question(db, matched.next_question_id)
     else:
-        # Fall through to next sort_order
         result = await db.execute(
             select(Question)
-            .options(selectinload(Question.answers))
             .where(
                 Question.bot_id == bot.id,
                 Question.sort_order > question.sort_order,
@@ -298,7 +280,6 @@ async def process_turn(
             variables=variables,
         )
 
-    # No more questions → qualify & transfer
     reply = "Thank you. Please hold while I connect you with a specialist."
     history.append({"role": "bot", "text": reply})
     session.transcript = history

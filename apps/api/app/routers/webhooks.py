@@ -130,9 +130,7 @@ async def call_turn(
         raise HTTPException(404, "Call session not found")
 
     bot_result = await db.execute(
-        select(Bot)
-        .options(selectinload(Bot.questions).selectinload(Question.answers))
-        .where(Bot.id == session.bot_id)
+        select(Bot).options(selectinload(Bot.questions)).where(Bot.id == session.bot_id)
     )
     bot = bot_result.scalar_one_or_none()
     if not bot:

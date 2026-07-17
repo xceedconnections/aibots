@@ -1,13 +1,11 @@
 """
-AIBOTS SQLAlchemy models.
-
-CRITICAL: answers.next_question_id must NEVER be a ForeignKey("questions.id").
-Two FKs to questions breaks Mapper[Question].answers permanently.
+AIBOTS SQLAlchemy models — no Question↔Answer ORM relationships.
+Answers are loaded with explicit queries (app/bot_loader.py).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 import enum
 
 from sqlalchemy import (
@@ -25,9 +23,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-
-if TYPE_CHECKING:
-    pass
 
 
 def utcnow():
@@ -83,6 +78,19 @@ class Bot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+    questions: Mapped[list["Question"]] = relationship(
+        "Question",
+        back_populates="bot",
+        cascade="all, delete-orphan",
+        order_by="Question.sort_order",
+        foreign_keys="[Question.bot_id]",
+    )
+    calls: Mapped[list["CallSession"]] = relationship(
+        "CallSession",
+        back_populates="bot",
+        foreign_keys="[CallSession.bot_id]",
+    )
+
 
 class Question(Base):
     __tablename__ = "questions"
@@ -97,6 +105,12 @@ class Question(Base):
     is_start: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    bot: Mapped["Bot"] = relationship(
+        "Bot",
+        back_populates="questions",
+        foreign_keys=[bot_id],
+    )
+
 
 class Answer(Base):
     __tablename__ = "answers"
@@ -109,7 +123,6 @@ class Answer(Base):
     )
     intent: Mapped[str] = mapped_column(String(100), index=True)
     keywords: Mapped[list] = mapped_column(JSON, default=list)
-    # Plain int — NOT a ForeignKey (prevents dual-path mapper error)
     next_question_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     action: Mapped[ActionType] = mapped_column(Enum(ActionType), default=ActionType.CONTINUE)
     store_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -137,43 +150,8 @@ class CallSession(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-
-# ---------------------------------------------------------------------------
-# Relationships configured AFTER all tables exist, with explicit foreign_keys
-# using real Column objects. This is the reliable fix for dual-FK ambiguity.
-# ---------------------------------------------------------------------------
-Bot.questions = relationship(
-    Question,
-    back_populates="bot",
-    cascade="all, delete-orphan",
-    order_by=Question.sort_order,
-    foreign_keys=[Question.bot_id],
-)
-Question.bot = relationship(
-    Bot,
-    back_populates="questions",
-    foreign_keys=[Question.bot_id],
-)
-
-Question.answers = relationship(
-    Answer,
-    back_populates="question",
-    cascade="all, delete-orphan",
-    foreign_keys=[Answer.question_id],
-)
-Answer.question = relationship(
-    Question,
-    back_populates="answers",
-    foreign_keys=[Answer.question_id],
-)
-
-Bot.calls = relationship(
-    CallSession,
-    back_populates="bot",
-    foreign_keys=[CallSession.bot_id],
-)
-CallSession.bot = relationship(
-    Bot,
-    back_populates="calls",
-    foreign_keys=[CallSession.bot_id],
-)
+    bot: Mapped[Optional["Bot"]] = relationship(
+        "Bot",
+        back_populates="calls",
+        foreign_keys=[bot_id],
+    )

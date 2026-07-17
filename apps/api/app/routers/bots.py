@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
+from app.bot_loader import bot_to_out, get_bot, load_answers, load_answers_map, question_to_out
 from app.database import get_db
 from app.models import Answer, Bot, Question, User
 from app.schemas import (
@@ -18,6 +18,7 @@ from app.schemas import (
     QuestionOut,
     QuestionUpdate,
 )
+from app.seed import seed_sample_bot
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -31,6 +32,17 @@ async def list_bots(
     return result.scalars().all()
 
 
+@router.post("/seed-sample", response_model=BotOut)
+async def seed_sample(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Create the ACA Qualifier sample bot if missing."""
+    bot = await seed_sample_bot(db)
+    loaded = await get_bot(db, bot.id)
+    return await bot_to_out(db, loaded)
+
+
 @router.post("", response_model=BotOut, status_code=201)
 async def create_bot(
     payload: BotCreate,
@@ -40,25 +52,20 @@ async def create_bot(
     bot = Bot(**payload.model_dump())
     db.add(bot)
     await db.flush()
-    await db.refresh(bot)
-    return bot
+    loaded = await get_bot(db, bot.id)
+    return await bot_to_out(db, loaded)
 
 
 @router.get("/{bot_id}", response_model=BotOut)
-async def get_bot(
+async def get_bot_route(
     bot_id: int,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Bot)
-        .options(selectinload(Bot.questions).selectinload(Question.answers))
-        .where(Bot.id == bot_id)
-    )
-    bot = result.scalar_one_or_none()
+    bot = await get_bot(db, bot_id)
     if not bot:
         raise HTTPException(404, "Bot not found")
-    return bot
+    return await bot_to_out(db, bot)
 
 
 @router.patch("/{bot_id}", response_model=BotOut)
@@ -68,19 +75,14 @@ async def update_bot(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Bot)
-        .options(selectinload(Bot.questions).selectinload(Question.answers))
-        .where(Bot.id == bot_id)
-    )
-    bot = result.scalar_one_or_none()
+    bot = await get_bot(db, bot_id)
     if not bot:
         raise HTTPException(404, "Bot not found")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(bot, k, v)
     await db.flush()
-    await db.refresh(bot)
-    return bot
+    bot = await get_bot(db, bot_id)
+    return await bot_to_out(db, bot)
 
 
 @router.delete("/{bot_id}", status_code=204)
@@ -102,14 +104,11 @@ async def clone_bot(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Bot)
-        .options(selectinload(Bot.questions).selectinload(Question.answers))
-        .where(Bot.id == bot_id)
-    )
-    src = result.scalar_one_or_none()
+    src = await get_bot(db, bot_id)
     if not src:
         raise HTTPException(404, "Bot not found")
+
+    amap = await load_answers_map(db, [q.id for q in (src.questions or [])])
 
     clone = Bot(
         name=f"{src.name} (Copy)",
@@ -127,7 +126,7 @@ async def clone_bot(
     await db.flush()
 
     q_map: dict[int, int] = {}
-    for q in src.questions:
+    for q in src.questions or []:
         nq = Question(
             bot_id=clone.id,
             sort_order=q.sort_order,
@@ -141,11 +140,11 @@ async def clone_bot(
         await db.flush()
         q_map[q.id] = nq.id
 
-    for q in src.questions:
-        for a in q.answers:
+    for old_qid, answers in amap.items():
+        for a in answers:
             db.add(
                 Answer(
-                    question_id=q_map[q.id],
+                    question_id=q_map[old_qid],
                     intent=a.intent,
                     keywords=list(a.keywords or []),
                     next_question_id=q_map.get(a.next_question_id) if a.next_question_id else None,
@@ -155,15 +154,10 @@ async def clone_bot(
                 )
             )
     await db.flush()
-    result = await db.execute(
-        select(Bot)
-        .options(selectinload(Bot.questions).selectinload(Question.answers))
-        .where(Bot.id == clone.id)
-    )
-    return result.scalar_one()
+    bot = await get_bot(db, clone.id)
+    return await bot_to_out(db, bot)
 
 
-# ---- Questions ----
 @router.post("/{bot_id}/questions", response_model=QuestionOut, status_code=201)
 async def add_question(
     bot_id: int,
@@ -182,10 +176,7 @@ async def add_question(
     for a in payload.answers:
         db.add(Answer(question_id=q.id, **a.model_dump()))
     await db.flush()
-    result = await db.execute(
-        select(Question).options(selectinload(Question.answers)).where(Question.id == q.id)
-    )
-    return result.scalar_one()
+    return await question_to_out(db, q)
 
 
 @router.patch("/questions/{question_id}", response_model=QuestionOut)
@@ -195,9 +186,7 @@ async def update_question(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Question).options(selectinload(Question.answers)).where(Question.id == question_id)
-    )
+    result = await db.execute(select(Question).where(Question.id == question_id))
     q = result.scalar_one_or_none()
     if not q:
         raise HTTPException(404, "Question not found")
@@ -205,7 +194,7 @@ async def update_question(
         setattr(q, k, v)
     await db.flush()
     await db.refresh(q)
-    return q
+    return await question_to_out(db, q)
 
 
 @router.delete("/questions/{question_id}", status_code=204)
@@ -218,6 +207,10 @@ async def delete_question(
     q = result.scalar_one_or_none()
     if not q:
         raise HTTPException(404, "Question not found")
+    # delete answers first
+    answers = await load_answers(db, question_id)
+    for a in answers:
+        await db.delete(a)
     await db.delete(q)
 
 
