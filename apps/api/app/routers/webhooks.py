@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import ActionType, Bot, CallSession, CallStatus, Question
+from app.models import ActionType, Bot, CallSession, CallStatus
 from app.schemas import CallSessionOut, CallStartResponse, CallTurnRequest, DecisionResult, VicidialStartPayload
 from app.services.decision_engine import get_start_question, process_turn
 from app.services.vicidial import transfer_to_closer, update_lead_fields
