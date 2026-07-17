@@ -1,19 +1,25 @@
 /**
- * API base URL.
- * Default: same-origin `/api` (portal nginx proxies to FastAPI).
- * This avoids localhost / wrong-IP NetworkError when opening the portal remotely.
+ * Resolve API base URL at runtime from the browser location.
+ * Avoids baked-in localhost and avoids portal-nginx 502 when DNS to `api` fails.
  */
 function resolveApiUrl() {
   const env = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '')
   if (
-    !env ||
-    env.includes('localhost') ||
-    env.includes('127.0.0.1') ||
-    env.includes('YOUR_SERVER_IP')
+    env &&
+    !env.includes('localhost') &&
+    !env.includes('127.0.0.1') &&
+    !env.includes('YOUR_SERVER_IP')
   ) {
-    return '/api'
+    return env
   }
-  return env
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location
+    // Direct to exposed API port (docker maps 8000:8000)
+    return `${protocol}//${hostname}:8000`
+  }
+
+  return 'http://127.0.0.1:8000'
 }
 
 const API_URL = resolveApiUrl()
@@ -47,7 +53,7 @@ async function request(path, options = {}) {
     res = await fetch(`${API_URL}${path}`, { ...options, headers })
   } catch (err) {
     throw new Error(
-      `Cannot reach API (${API_URL}). Check that the api container is running and port 8000 is open.`
+      `Cannot reach API at ${API_URL}${path}. Is aibots-api running? Try: curl ${API_URL}/health`
     )
   }
 
