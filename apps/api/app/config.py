@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     asterisk_ami_user: str = "aibots"
     asterisk_ami_secret: str = "ami_secret"
 
+    public_ip: str = "YOUR_AIBOTS_PUBLIC_IP"
+    aibots_sip_password: str = "aibotsSipPass123"
+
     max_question_retries: int = 2
 
     class Config:

@@ -19,23 +19,47 @@ settings = get_settings()
 
 
 async def enqueue_call(session_id: int, payload: dict):
-    """Push new call job to Redis for the AI worker."""
+    """Push new call job to Redis for the AI worker / AudioSocket."""
     r = redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        await r.lpush("aibots:call_queue", json.dumps({"call_session_id": session_id, **payload}))
+        job = {
+            "call_session_id": session_id,
+            **payload,
+            "simulate": payload.get("simulate", True),
+        }
+        uid = job.get("uniqueid") or job.get("call_id") or job.get("vicidial_call_id")
+        await r.lpush("aibots:call_queue", json.dumps(job))
         await r.set(f"aibots:call:{session_id}:status", "queued")
+        if uid and not job.get("simulate", True):
+            await r.setex(f"aibots:sip:{uid}", 180, json.dumps(job))
     finally:
         await r.aclose()
+
+
+@router.get("/webhook/vicidial/start", response_model=CallStartResponse)
+async def vicidial_start_get(request: Request, db: AsyncSession = Depends(get_db)):
+    """Asterisk dialplan CURL uses GET with query params."""
+    q = dict(request.query_params)
+    payload = VicidialStartPayload(
+        call_id=q.get("call_id") or q.get("uniqueid"),
+        lead_id=q.get("lead_id"),
+        phone=q.get("phone") or q.get("phone_number"),
+        campaign=q.get("campaign") or q.get("campaign_id"),
+        bot_id=int(q["bot_id"]) if q.get("bot_id") else None,
+        uniqueid=q.get("uniqueid") or q.get("call_id"),
+        channel=q.get("channel"),
+        extra={**q, "simulate": q.get("simulate", "false")},
+    )
+    return await vicidial_start(payload, db)
 
 
 @router.post("/webhook/vicidial/start", response_model=CallStartResponse)
 async def vicidial_start(payload: VicidialStartPayload, db: AsyncSession = Depends(get_db)):
     """
-    VICIdial Start Call URL / webhook.
-
-    Configure in VICIdial campaign as:
-      http://YOUR_AIBOTS_IP/webhook/vicidial/start
-    with lead/call fields posted or as query string.
+    Start AI session — used by:
+      - Portal test calls
+      - Asterisk dialplan CURL (SIP carrier mode)
+      - Optional VICIdial Start URL (legacy)
     """
     bot: Bot | None = None
     if payload.bot_id:
@@ -54,10 +78,11 @@ async def vicidial_start(payload: VicidialStartPayload, db: AsyncSession = Depen
         raise HTTPException(404, "No active bot found for this campaign")
 
     start_q = await get_start_question(db, bot.id)
+    call_uid = payload.call_id or payload.uniqueid
 
     session = CallSession(
         bot_id=bot.id,
-        vicidial_call_id=payload.call_id or payload.uniqueid,
+        vicidial_call_id=call_uid,
         lead_id=payload.lead_id,
         phone=payload.phone,
         campaign=payload.campaign or bot.campaign,
@@ -71,6 +96,12 @@ async def vicidial_start(payload: VicidialStartPayload, db: AsyncSession = Depen
     await db.flush()
     await db.refresh(session)
 
+    # SIP carrier = live; portal test uses phone 555* or extra.simulate=true
+    extra = payload.extra or {}
+    is_sim = str(extra.get("simulate", "")).lower() in ("1", "true", "yes")
+    if (payload.phone or "").startswith("555"):
+        is_sim = True
+
     await enqueue_call(
         session.id,
         {
@@ -81,6 +112,11 @@ async def vicidial_start(payload: VicidialStartPayload, db: AsyncSession = Depen
             "greeting": bot.greeting,
             "first_question": start_q.prompt if start_q else None,
             "voice": bot.voice,
+            "uniqueid": call_uid,
+            "call_id": call_uid,
+            "vicidial_call_id": call_uid,
+            "simulate": is_sim,
+            "transfer_campaign": bot.transfer_campaign,
         },
     )
 

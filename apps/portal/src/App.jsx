@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Bots from './pages/Bots'
 import BotEditor from './pages/BotEditor'
+import Carrier from './pages/Carrier'
 import Calls from './pages/Calls'
 
 function Private({ children }) {
@@ -27,6 +28,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="bots" element={<Bots />} />
         <Route path="bots/:id" element={<BotEditor />} />
+        <Route path="carrier" element={<Carrier />} />
         <Route path="calls" element={<Calls />} />
       </Route>
     </Routes>

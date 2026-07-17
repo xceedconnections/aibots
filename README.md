@@ -10,6 +10,14 @@ Fully self-hosted AI voice agents for VICIdial:
 
 **Repo:** [github.com/xceedconnections/aibots](https://github.com/xceedconnections/aibots)
 
+## Integration mode (vendor-style)
+
+Primary integration is **SIP Carrier** (same pattern as commercial AI bots):
+
+- VICIdial → Carriers → point at AIBOTS SIP
+- No Start Call URL required
+- See **[docs/SIP-CARRIER.md](docs/SIP-CARRIER.md)** and portal page **SIP Carrier**
+
 ## One-line install (Ubuntu)
 
 ```bash

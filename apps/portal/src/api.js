@@ -86,6 +86,10 @@ export const api = {
     request(`/bots/answers/${aid}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAnswer: (aid) => request(`/bots/answers/${aid}`, { method: 'DELETE' }),
   startTestCall: (payload) =>
-    request('/webhook/vicidial/start', { method: 'POST', body: JSON.stringify(payload) }),
+    request('/webhook/vicidial/start', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, extra: { ...(payload.extra || {}), simulate: true } }),
+    }),
   listCalls: () => request('/calls'),
+  carrierConfig: () => request('/carrier/config'),
 }

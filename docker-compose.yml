@@ -95,11 +95,13 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aibots:aibots_secure_pass@postgres:5432/aibots}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       API_INTERNAL_URL: http://api:8000
       SIMULATE_MODE: ${SIMULATE_MODE:-true}
+    ports:
+      - "9092:9092"
     volumes:
       - ./apps/worker:/app
       - ./data/recordings:/recordings
@@ -108,6 +110,28 @@ services:
       - api
       - redis
       - ollama
+
+  asterisk:
+    build:
+      context: ./docker/asterisk
+      dockerfile: Dockerfile
+    container_name: aibots-asterisk
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:-127.0.0.1}
+      VICIDIAL_IP: ${ASTERISK_AMI_HOST:-127.0.0.1}
+      ASTERISK_AMI_HOST: ${ASTERISK_AMI_HOST:-127.0.0.1}
+      AIBOTS_SIP_PASSWORD: ${AIBOTS_SIP_PASSWORD:-aibotsSipPass123}
+      ASTERISK_AMI_SECRET: ${ASTERISK_AMI_SECRET:-ami_secret}
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5038:5038"
+      - "10000-10100:10000-10100/udp"
+    depends_on:
+      - api
+      - worker
 
   portal:
     build:

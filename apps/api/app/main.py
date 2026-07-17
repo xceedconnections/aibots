@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import auth, bots, dashboard, webhooks
+from app.routers import auth, bots, carrier, dashboard, webhooks
 
 settings = get_settings()
 
@@ -33,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(bots.router)
+app.include_router(carrier.router)
 app.include_router(webhooks.router)
 app.include_router(dashboard.router)
 

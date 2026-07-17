@@ -16,6 +16,7 @@ export default function Layout() {
         <nav>
           <NavLink end to="/">Dashboard</NavLink>
           <NavLink to="/bots">Bots</NavLink>
+          <NavLink to="/carrier">SIP Carrier</NavLink>
           <NavLink to="/calls">Calls</NavLink>
         </nav>
         <button

@@ -1,11 +1,8 @@
 """
-AI call worker.
+AIBOTS call worker — vendor SIP mode + simulate mode.
 
-Pulls jobs from Redis queue `aibots:call_queue` and runs the conversation loop:
-  speak greeting → speak question → (listen/STT) → POST /calls/{id}/turn → speak reply → ...
-
-While Asterisk RTP bridge is not yet connected, SIMULATE_MODE=true runs a
-text-driven dry-run using sample answers so you can validate the full stack.
+- SIMULATE_MODE=true: scripted text dry-run (portal test calls)
+- SIMULATE_MODE=false: AudioSocket server for live Asterisk SIP calls
 """
 from __future__ import annotations
 
@@ -13,11 +10,13 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 import httpx
 import redis.asyncio as redis
 
+from worker.audiosocket import CallAudioBridge, pcm8k_to_wav, read_frame, TYPE_UUID, TYPE_HANGUP
 from worker.config import get_settings
 from worker.stt import transcribe_file
 from worker.tts import synthesize
@@ -29,7 +28,6 @@ logging.basicConfig(
 logger = logging.getLogger("aibots.worker")
 settings = get_settings()
 
-# Demo answers used only in simulate mode (scripted ACA sample bot)
 SIMULATE_ANSWERS = [
     "Yes, this is me.",
     "Yes I am between 18 and 64.",
@@ -45,13 +43,6 @@ async def api_post(path: str, payload: dict) -> dict:
         return r.json()
 
 
-async def api_get(path: str) -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.get(f"{settings.api_internal_url}{path}")
-        r.raise_for_status()
-        return r.json()
-
-
 async def speak(text: str, voice: str | None, call_id: int, turn: int) -> str:
     out_dir = Path("/recordings") / str(call_id)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -62,136 +53,212 @@ async def speak(text: str, voice: str | None, call_id: int, turn: int) -> str:
 
 
 async def listen_simulate(call_id: int, turn: int) -> str:
-    """Return next scripted customer answer for dry-run testing."""
     idx = turn
-    if idx >= len(SIMULATE_ANSWERS):
-        return "yes"
-    text = SIMULATE_ANSWERS[idx]
+    text = SIMULATE_ANSWERS[idx] if idx < len(SIMULATE_ANSWERS) else "yes"
     logger.info("[call %s] CUSTOMER (sim): %s", call_id, text)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.4)
     return text
 
 
-async def listen_from_file(audio_path: str) -> str:
-    return await asyncio.to_thread(transcribe_file, audio_path)
-
-
-async def handle_call(job: dict):
+async def handle_call_simulate(job: dict):
     call_id = job["call_session_id"]
     voice = job.get("voice")
     greeting = job.get("greeting") or "Hello."
     first_q = job.get("first_question")
-
-    logger.info("=== Starting call session %s ===", call_id)
-    r = redis.from_url(settings.redis_url, decode_responses=True)
-    await r.set(f"aibots:call:{call_id}:status", "active")
-
     turn = 0
-    try:
-        await speak(greeting, voice, call_id, turn)
+    await speak(greeting, voice, call_id, turn)
+    turn += 1
+    if first_q:
+        await speak(first_q, voice, call_id, turn)
         turn += 1
-        if first_q:
-            await speak(first_q, voice, call_id, turn)
+
+    customer_turn = 0
+    while customer_turn < 20:
+        transcript = await listen_simulate(call_id, customer_turn)
+        customer_turn += 1
+        decision = await api_post(
+            f"/calls/{call_id}/turn",
+            {"call_session_id": call_id, "transcript": transcript},
+        )
+        reply = decision.get("reply_text") or ""
+        if reply:
+            await speak(reply, voice, call_id, turn)
             turn += 1
+        if decision.get("done") or decision.get("action") in ("transfer", "hangup"):
+            break
+    await api_post(f"/calls/{call_id}/end", {})
 
-        customer_turn = 0
-        while True:
-            if settings.simulate_mode:
-                transcript = await listen_simulate(call_id, customer_turn)
-            else:
-                # Production: worker waits for audio chunk path published by RTP bridge
-                audio_key = f"aibots:call:{call_id}:audio"
-                audio_path = await r.blpop(audio_key, timeout=60)
-                if not audio_path:
-                    logger.warning("[call %s] listen timeout", call_id)
-                    transcript = ""
-                else:
-                    transcript = await listen_from_file(audio_path[1])
 
-            customer_turn += 1
-            decision = await api_post(
-                f"/calls/{call_id}/turn",
-                {"call_session_id": call_id, "transcript": transcript},
-            )
+async def run_live_session(bridge: CallAudioBridge, session: dict, voice: str | None):
+    call_id = session["call_session_id"]
+    turn = 0
 
-            reply = decision.get("reply_text") or ""
-            if reply:
-                await speak(reply, voice, call_id, turn)
-                turn += 1
+    async def say(text: str):
+        nonlocal turn
+        wav = await speak(text, voice, call_id, turn)
+        turn += 1
+        await bridge.play_wav(wav)
 
-            action = decision.get("action")
-            done = decision.get("done", False)
-            logger.info(
-                "[call %s] action=%s intent=%s confidence=%s done=%s",
-                call_id,
-                action,
-                decision.get("intent"),
-                decision.get("confidence"),
-                done,
-            )
+    await say(session.get("greeting") or "Hello.")
+    if session.get("first_question"):
+        await say(session["first_question"])
 
-            if done or action in ("transfer", "hangup"):
+    for _ in range(20):
+        pcm = await bridge.listen()
+        if not pcm:
+            transcript = ""
+        else:
+            wav_path = tempfile.mktemp(suffix=".wav")
+            pcm8k_to_wav(pcm, wav_path)
+            transcript = await asyncio.to_thread(transcribe_file, wav_path)
+            Path(wav_path).unlink(missing_ok=True)
+        logger.info("[call %s] CUSTOMER: %s", call_id, transcript)
+
+        decision = await api_post(
+            f"/calls/{call_id}/turn",
+            {"call_session_id": call_id, "transcript": transcript or ""},
+        )
+        reply = decision.get("reply_text") or ""
+        if reply:
+            await say(reply)
+
+        action = decision.get("action")
+        if decision.get("done") or action in ("transfer", "hangup"):
+            if action == "transfer":
+                # Signal Asterisk via Redis for AMI redirect (optional)
+                r = redis.from_url(settings.redis_url, decode_responses=True)
+                await r.publish(
+                    "aibots:transfer",
+                    json.dumps(
+                        {
+                            "call_session_id": call_id,
+                            "channel": session.get("channel"),
+                            "closer": decision.get("transfer_campaign"),
+                        }
+                    ),
+                )
+                await r.aclose()
+            break
+
+    await api_post(f"/calls/{call_id}/end", {})
+
+
+async def audiosocket_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    peer = writer.get_extra_info("peername")
+    logger.info("AudioSocket connection from %s", peer)
+    bridge = CallAudioBridge(reader, writer)
+    unique = ""
+
+    # Read first frames for UUID / bind to queued session
+    try:
+        for _ in range(5):
+            frame = await asyncio.wait_for(read_frame(reader), timeout=5)
+            if not frame:
                 break
-
-            if customer_turn > 20:
-                logger.warning("[call %s] max turns reached", call_id)
+            ftype, payload = frame
+            if ftype == TYPE_UUID:
+                unique = payload.decode("utf-8", errors="ignore")
+                bridge.uuid = unique
                 break
-
-        await api_post(f"/calls/{call_id}/end", {})
-        await r.set(f"aibots:call:{call_id}:status", "done")
-        logger.info("=== Finished call session %s ===", call_id)
+            if ftype == TYPE_HANGUP:
+                writer.close()
+                return
     except Exception as exc:
-        logger.exception("Call %s failed: %s", call_id, exc)
-        await r.set(f"aibots:call:{call_id}:status", f"error:{exc}")
+        logger.warning("AudioSocket handshake: %s", exc)
+
+    r = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        # Sessions keyed by Asterisk UNIQUEID after webhook start
+        raw = None
+        if unique:
+            raw = await r.get(f"aibots:sip:{unique}")
+        if not raw:
+            # fallback: latest queued job
+            item = await r.lpop("aibots:call_queue")
+            raw = item
+        if not raw:
+            logger.error("No call session for AudioSocket uuid=%s", unique)
+            writer.close()
+            return
+
+        job = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(job, str):
+            job = json.loads(job)
+
+        # Ensure we have greeting fields
+        if "greeting" not in job and job.get("call_session_id"):
+            sess = await api_get_session(job["call_session_id"])
+            job.update(sess)
+
+        await run_live_session(bridge, job, job.get("voice"))
+    except Exception:
+        logger.exception("Live call failed")
     finally:
         await r.aclose()
-
-
-async def worker_loop():
-    logger.info(
-        "AIBOTS worker starting (simulate_mode=%s, redis=%s)",
-        settings.simulate_mode,
-        settings.redis_url,
-    )
-    # Wait for API health
-    for i in range(60):
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(f"{settings.api_internal_url}/health")
-                if r.status_code == 200:
-                    logger.info("API is healthy")
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def api_get_session(call_id: int) -> dict:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        # minimal — greeting already in queue job usually
+        return {"call_session_id": call_id}
+
+
+async def queue_loop():
+    r = redis.from_url(settings.redis_url, decode_responses=True)
+    while True:
+        try:
+            item = await r.brpop("aibots:call_queue", timeout=2)
+            if not item:
+                continue
+            _, raw = item
+            job = json.loads(raw)
+            # Simulate jobs (portal test) always handled here
+            if settings.simulate_mode or job.get("simulate", True):
+                asyncio.create_task(handle_call_simulate(job))
+            else:
+                # Live SIP: stash by uniqueid for AudioSocket pickup
+                uid = job.get("vicidial_call_id") or job.get("uniqueid") or ""
+                if uid:
+                    await r.setex(f"aibots:sip:{uid}", 120, json.dumps(job))
+                else:
+                    await r.lpush("aibots:call_queue_live", json.dumps(job))
+        except Exception as exc:
+            logger.error("Queue error: %s", exc)
+            await asyncio.sleep(1)
+
+
+async def main_async():
+    sim = os.getenv("SIMULATE_MODE", "true").lower()
+    if sim in ("0", "false", "no"):
+        settings.simulate_mode = False
+
+    logger.info("Worker starting simulate_mode=%s", settings.simulate_mode)
+
+    # Wait for API
+    for _ in range(60):
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                if (await client.get(f"{settings.api_internal_url}/health")).status_code == 200:
                     break
         except Exception:
             pass
         await asyncio.sleep(2)
-    else:
-        logger.error("API not reachable — continuing anyway")
 
-    sem = asyncio.Semaphore(settings.max_concurrent_calls)
-    r = redis.from_url(settings.redis_url, decode_responses=True)
-
-    async def run_job(raw: str):
-        async with sem:
-            job = json.loads(raw)
-            await handle_call(job)
-
-    while True:
-        try:
-            item = await r.brpop("aibots:call_queue", timeout=5)
-            if not item:
-                continue
-            _, raw = item
-            asyncio.create_task(run_job(raw))
-        except Exception as exc:
-            logger.error("Queue loop error: %s", exc)
-            await asyncio.sleep(2)
+    tasks = [asyncio.create_task(queue_loop())]
+    # Always listen for SIP AudioSocket (vendor mode)
+    server = await asyncio.start_server(audiosocket_handler, "0.0.0.0", 9092)
+    logger.info("AudioSocket listening on 0.0.0.0:9092")
+    tasks.append(asyncio.create_task(server.serve_forever()))
+    await asyncio.gather(*tasks)
 
 
 def main():
-    sim = os.getenv("SIMULATE_MODE", "true").lower()
-    if sim in ("0", "false", "no"):
-        settings.simulate_mode = False
-    asyncio.run(worker_loop())
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
