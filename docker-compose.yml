@@ -101,7 +101,8 @@ services:
       context: ./apps/portal
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        # Empty = use same-origin /api proxy (works for any server IP)
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: aibots-portal
     restart: unless-stopped
     ports:

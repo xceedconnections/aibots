@@ -1,5 +1,22 @@
-// Direct API (:8000) or same-origin nginx prefix (/api)
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+/**
+ * API base URL.
+ * Default: same-origin `/api` (portal nginx proxies to FastAPI).
+ * This avoids localhost / wrong-IP NetworkError when opening the portal remotely.
+ */
+function resolveApiUrl() {
+  const env = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '')
+  if (
+    !env ||
+    env.includes('localhost') ||
+    env.includes('127.0.0.1') ||
+    env.includes('YOUR_SERVER_IP')
+  ) {
+    return '/api'
+  }
+  return env
+}
+
+const API_URL = resolveApiUrl()
 
 function getToken() {
   return localStorage.getItem('aibots_token')
@@ -25,7 +42,15 @@ async function request(path, options = {}) {
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers })
+  let res
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers })
+  } catch (err) {
+    throw new Error(
+      `Cannot reach API (${API_URL}). Check that the api container is running and port 8000 is open.`
+    )
+  }
+
   if (res.status === 401) {
     clearToken()
     if (!window.location.pathname.includes('/login')) {
@@ -35,7 +60,8 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Request failed')
+    const detail = err.detail
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail) || 'Request failed')
   }
   if (res.status === 204) return null
   return res.json()

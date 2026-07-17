@@ -21,10 +21,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# JWT is sent via Authorization header (not cookies), so credentials=False
+# is fine and allows any portal origin / IP without NetworkError.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list + ["*"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
