@@ -64,9 +64,17 @@ class Bot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     questions: Mapped[list["Question"]] = relationship(
-        back_populates="bot", cascade="all, delete-orphan", order_by="Question.sort_order"
+        "Question",
+        back_populates="bot",
+        cascade="all, delete-orphan",
+        order_by="Question.sort_order",
+        foreign_keys="Question.bot_id",
     )
-    calls: Mapped[list["CallSession"]] = relationship(back_populates="bot")
+    calls: Mapped[list["CallSession"]] = relationship(
+        "CallSession",
+        back_populates="bot",
+        foreign_keys="CallSession.bot_id",
+    )
 
 
 class Question(Base):
@@ -82,12 +90,18 @@ class Question(Base):
     is_start: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    bot: Mapped["Bot"] = relationship(back_populates="questions")
+    bot: Mapped["Bot"] = relationship(
+        "Bot",
+        back_populates="questions",
+        foreign_keys=[bot_id],
+    )
+    # ONLY one FK to questions from answers.question_id (next_question_id is NOT an FK)
     answers: Mapped[list["Answer"]] = relationship(
         "Answer",
         back_populates="question",
         cascade="all, delete-orphan",
-        foreign_keys="Answer.question_id",
+        foreign_keys="[Answer.question_id]",
+        primaryjoin="Question.id == Answer.question_id",
     )
 
 
@@ -95,12 +109,15 @@ class Answer(Base):
     __tablename__ = "answers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     intent: Mapped[str] = mapped_column(String(100), index=True)
     keywords: Mapped[list] = mapped_column(JSON, default=list)
-    next_question_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("questions.id", ondelete="SET NULL"), nullable=True
-    )
+    # Plain integer — NOT a ForeignKey. Avoids dual FK paths that break Question.answers.
+    next_question_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     action: Mapped[ActionType] = mapped_column(Enum(ActionType), default=ActionType.CONTINUE)
     store_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
@@ -109,11 +126,7 @@ class Answer(Base):
         "Question",
         back_populates="answers",
         foreign_keys=[question_id],
-    )
-    next_question: Mapped[Optional["Question"]] = relationship(
-        "Question",
-        foreign_keys=[next_question_id],
-        post_update=True,
+        primaryjoin="Answer.question_id == Question.id",
     )
 
 
@@ -128,7 +141,7 @@ class CallSession(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     campaign: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     status: Mapped[CallStatus] = mapped_column(Enum(CallStatus), default=CallStatus.STARTED)
-    current_question_id: Mapped[Optional[int]] = mapped_column(nullable=True)
+    current_question_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     variables: Mapped[dict] = mapped_column(JSON, default=dict)
     transcript: Mapped[list] = mapped_column(JSON, default=list)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -138,4 +151,8 @@ class CallSession(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    bot: Mapped[Optional["Bot"]] = relationship(back_populates="calls")
+    bot: Mapped[Optional["Bot"]] = relationship(
+        "Bot",
+        back_populates="calls",
+        foreign_keys=[bot_id],
+    )
