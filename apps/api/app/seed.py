@@ -20,17 +20,30 @@ async def seed():
 
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(User).where(User.email == settings.admin_email))
-        if not existing.scalar_one_or_none():
-            db.add(
-                User(
-                    email=settings.admin_email,
-                    hashed_password=hash_password(settings.admin_password),
-                    full_name="Admin",
+        admin = existing.scalar_one_or_none()
+        if not admin:
+            # Migrate legacy default account if present
+            legacy = await db.execute(select(User).where(User.email == "admin@aibots.local"))
+            admin = legacy.scalar_one_or_none()
+            if admin:
+                admin.email = settings.admin_email
+                admin.hashed_password = hash_password(settings.admin_password)
+                admin.is_active = True
+                logger.info("Migrated admin to %s", settings.admin_email)
+            else:
+                db.add(
+                    User(
+                        email=settings.admin_email,
+                        hashed_password=hash_password(settings.admin_password),
+                        full_name="Admin",
+                    )
                 )
-            )
-            logger.info("Created admin user: %s", settings.admin_email)
+                logger.info("Created admin user: %s", settings.admin_email)
         else:
-            logger.info("Admin user already exists")
+            # Keep password in sync with env on seed (setup / recovery)
+            admin.hashed_password = hash_password(settings.admin_password)
+            admin.is_active = True
+            logger.info("Updated admin password for %s", settings.admin_email)
 
         bot_exists = await db.execute(select(Bot).where(Bot.name == "ACA Qualifier"))
         if bot_exists.scalar_one_or_none():

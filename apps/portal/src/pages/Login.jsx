@@ -4,8 +4,8 @@ import { api, setToken } from '../api'
 
 export default function Login() {
   const nav = useNavigate()
-  const [email, setEmail] = useState('admin@aibots.local')
-  const [password, setPassword] = useState('ChangeMe123!')
+  const [email, setEmail] = useState('xceedconnections@gmail.com')
+  const [password, setPassword] = useState('Openaccount@123')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 

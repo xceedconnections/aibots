@@ -71,11 +71,17 @@ async def login_json(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/reset-admin", response_model=UserOut)
 async def reset_admin(db: AsyncSession = Depends(get_db)):
     """
-    Reset admin password from ADMIN_EMAIL / ADMIN_PASSWORD env.
-    Intended for initial setup / recovery on a private server.
+    Create/update admin from ADMIN_EMAIL / ADMIN_PASSWORD env.
+    Also migrates legacy admin@aibots.local if present.
     """
     result = await db.execute(select(User).where(User.email == settings.admin_email))
     user = result.scalar_one_or_none()
+    if not user:
+        legacy = await db.execute(select(User).where(User.email == "admin@aibots.local"))
+        user = legacy.scalar_one_or_none()
+        if user:
+            user.email = settings.admin_email
+
     if user:
         user.hashed_password = hash_password(settings.admin_password)
         user.is_active = True

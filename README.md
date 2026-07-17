@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/xceedconnections/aibots/main/instal
 Full guide: **[INSTALL.md](INSTALL.md)** · VICIdial setup: **[docs/VICIDIAL.md](docs/VICIDIAL.md)** · Deploy notes: **[docs/DEPLOY-UBUNTU.md](docs/DEPLOY-UBUNTU.md)**
 
 After install open `http://SERVER_IP:3000`  
-Login: `admin@aibots.local` / `ChangeMe123!`
+Login: `xceedconnections@gmail.com` / `Openaccount@123`
 
 ## Architecture
 

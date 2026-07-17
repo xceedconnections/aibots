@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/xceedconnections/aibots/main/instal
 | API docs | `http://SERVER_IP:8000/docs` |
 | Nginx | `http://SERVER_IP/` |
 
-**Login:** `admin@aibots.local` / `ChangeMe123!`
+**Login:** `xceedconnections@gmail.com` / `Openaccount@123`
 
 ### Configure
 

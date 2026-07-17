@@ -84,7 +84,10 @@ class Question(Base):
 
     bot: Mapped["Bot"] = relationship(back_populates="questions")
     answers: Mapped[list["Answer"]] = relationship(
-        back_populates="question", cascade="all, delete-orphan"
+        "Answer",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        foreign_keys="Answer.question_id",
     )
 
 
@@ -103,7 +106,14 @@ class Answer(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0)
 
     question: Mapped["Question"] = relationship(
-        back_populates="answers", foreign_keys=[question_id]
+        "Question",
+        back_populates="answers",
+        foreign_keys=[question_id],
+    )
+    next_question: Mapped[Optional["Question"]] = relationship(
+        "Question",
+        foreign_keys=[next_question_id],
+        post_update=True,
     )
 
 

@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     secret_key: str = "dev-secret-change-me"
     jwt_expire_minutes: int = 1440
-    admin_email: str = "admin@aibots.local"
-    admin_password: str = "ChangeMe123!"
+    admin_email: str = "xceedconnections@gmail.com"
+    admin_password: str = "Openaccount@123"
 
     database_url: str = "postgresql+asyncpg://aibots:aibots_secure_pass@postgres:5432/aibots"
     redis_url: str = "redis://redis:6379/0"
