@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import socket
 from pathlib import Path
 
@@ -23,15 +24,30 @@ def _peer_ip(row: VicidialServer) -> str:
     return (row.sip_ip or row.host or "").strip()
 
 
+def _safe_write_text(path: Path, content: str) -> None:
+    """
+    Write text file safely.
+    Docker sometimes creates a DIRECTORY at the bind-mount path if the file
+    was missing on first `compose up` — fix that and rewrite as a file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.is_dir():
+        logger.warning("Removing accidental directory at %s (Docker bind-mount glitch)", path)
+        shutil.rmtree(path)
+    # Atomic-ish write
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
 def _write_allowed_ips(ips: list[str]) -> None:
     """One IPv4 per line — consumed by aibots-firewall container."""
-    ALLOWED_IPS_PATH.parent.mkdir(parents=True, exist_ok=True)
     body = "\n".join(ips) + ("\n" if ips else "")
-    ALLOWED_IPS_PATH.write_text(
+    _safe_write_text(
+        ALLOWED_IPS_PATH,
         "# Auto-generated from Portal → VICIdial Servers\n"
         "# Only these IPs may hit Asterisk SIP/RTP (firewall sync)\n"
         + body,
-        encoding="utf-8",
     )
     logger.info("Wrote %s (%s IP(s))", ALLOWED_IPS_PATH, len(ips))
 
@@ -94,11 +110,14 @@ async def rebuild_asterisk_identify(db: AsyncSession) -> str:
         lines.append("; (no Vicidial servers yet — add them in Portal → VICIdial Servers)")
 
     content = "\n".join(lines) + "\n"
-    IDENTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    IDENTIFY_PATH.write_text(content, encoding="utf-8")
-    logger.info("Wrote %s with %s IP(s)", IDENTIFY_PATH, len(ips))
-
-    _write_allowed_ips(ips)
+    try:
+        _safe_write_text(IDENTIFY_PATH, content)
+        logger.info("Wrote %s with %s IP(s)", IDENTIFY_PATH, len(ips))
+        _write_allowed_ips(ips)
+    except Exception as exc:
+        # Never fail the portal CRUD because of filesystem/AMI issues
+        logger.exception("Asterisk identify/firewall file sync failed: %s", exc)
+        return f"ERROR: {exc}\n{content}"
 
     if _ami_reload_pjsip():
         logger.info("PJSIP reloaded via AMI")
