@@ -16,10 +16,24 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 IDENTIFY_PATH = Path(os.getenv("ASTERISK_IDENTIFY_PATH", "/data/asterisk/pjsip_identify.conf"))
+ALLOWED_IPS_PATH = Path(os.getenv("ASTERISK_ALLOWED_IPS_PATH", "/data/asterisk/allowed_ips.txt"))
 
 
 def _peer_ip(row: VicidialServer) -> str:
     return (row.sip_ip or row.host or "").strip()
+
+
+def _write_allowed_ips(ips: list[str]) -> None:
+    """One IPv4 per line — consumed by aibots-firewall container."""
+    ALLOWED_IPS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    body = "\n".join(ips) + ("\n" if ips else "")
+    ALLOWED_IPS_PATH.write_text(
+        "# Auto-generated from Portal → VICIdial Servers\n"
+        "# Only these IPs may hit Asterisk SIP/RTP (firewall sync)\n"
+        + body,
+        encoding="utf-8",
+    )
+    logger.info("Wrote %s (%s IP(s))", ALLOWED_IPS_PATH, len(ips))
 
 
 def _ami_reload_pjsip() -> bool:
@@ -83,6 +97,8 @@ async def rebuild_asterisk_identify(db: AsyncSession) -> str:
     IDENTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
     IDENTIFY_PATH.write_text(content, encoding="utf-8")
     logger.info("Wrote %s with %s IP(s)", IDENTIFY_PATH, len(ips))
+
+    _write_allowed_ips(ips)
 
     if _ami_reload_pjsip():
         logger.info("PJSIP reloaded via AMI")

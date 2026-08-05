@@ -1,0 +1,3 @@
+# Auto-generated from Portal → VICIdial Servers
+# Only these IPs may hit Asterisk SIP/RTP (firewall sync)
+# Add dialers in the portal — one public IPv4 per line below

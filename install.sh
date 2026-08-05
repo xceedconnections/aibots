@@ -157,14 +157,12 @@ match=${VICIDIAL_IP}
 EOF
 fi
 
-echo "==> Firewall (SSH, HTTP, SIP, RTP)"
+echo "==> Firewall (SSH + HTTP portal; SIP locked to Vicidial IPs via aibots-firewall)"
 ufw allow OpenSSH || true
 ufw allow 80/tcp || true
 ufw allow 3000/tcp || true
 ufw allow 8000/tcp || true
-ufw allow 5060/udp || true
-ufw allow 5060/tcp || true
-ufw allow 10000:10100/udp || true
+# Do NOT open 5060 to the world — aibots-firewall allows only portal Vicidial IPs
 ufw --force enable || true
 
 echo "==> Building and starting containers"

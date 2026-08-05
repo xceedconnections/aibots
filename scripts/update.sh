@@ -58,8 +58,8 @@ cd "$APP_DIR"
 grep -q '^SIP_MODE=' .env 2>/dev/null || echo 'SIP_MODE=ip' >> .env
 grep -q '^ADMIN_PASSWORD=' .env 2>/dev/null || echo 'ADMIN_PASSWORD=Openaccount@123' >> .env
 
-echo "==> Rebuilding containers (api, portal, asterisk, worker)"
-docker compose up -d --build api portal asterisk worker
+echo "==> Rebuilding containers (api, portal, asterisk, worker, firewall)"
+docker compose up -d --build api portal asterisk worker firewall
 
 echo "==> Waiting for API"
 for i in $(seq 1 60); do

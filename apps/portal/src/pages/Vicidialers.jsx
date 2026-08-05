@@ -131,6 +131,16 @@ export default function Vicidialers() {
       </section>
 
       <section className="panel">
+        <div className="panel-head"><h3>Firewall</h3></div>
+        <p>
+          Asterisk SIP <span className="mono">5060</span> and RTP{" "}
+          <span className="mono">10000–10100</span> accept traffic only from IPs listed above.
+          Internet SIP scanners are dropped. Add each Vicidial public IP here, then wait ~10s
+          (or click Sync Asterisk).
+        </p>
+      </section>
+
+      <section className="panel">
         <div className="panel-head">
           <h3>Vicidial Asterisk IP peer (paste on each dialer)</h3>
           <span className="muted">No register =&gt; line</span>

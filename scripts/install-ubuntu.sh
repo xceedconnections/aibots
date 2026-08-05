@@ -118,9 +118,7 @@ ufw allow OpenSSH || true
 ufw allow 80/tcp || true
 ufw allow 3000/tcp || true
 ufw allow 8000/tcp || true
-ufw allow 5060/udp || true
-ufw allow 5060/tcp || true
-ufw allow 10000:10100/udp || true
+# SIP/RTP locked down by aibots-firewall (portal Vicidial IPs only)
 ufw --force enable || true
 
 docker compose pull || true
