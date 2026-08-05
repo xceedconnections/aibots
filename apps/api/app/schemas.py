@@ -201,8 +201,8 @@ class CallSessionOut(BaseModel):
 
 class CallStartResponse(BaseModel):
     call_session_id: int
-    bot_id: int
-    greeting: str
+    bot_id: Optional[int] = None
+    greeting: str = ""
     first_question: Optional[str] = None
     first_question_id: Optional[int] = None
     status: CallStatus

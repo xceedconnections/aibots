@@ -129,7 +129,7 @@ AIBOTS/
 
 ## Simulate vs live audio
 
-`SIMULATE_MODE=true` keeps portal test calls working. Live SIP INVITEs set `simulate=false` automatically.
+`SIMULATE_MODE=false` for live SIP audio. Portal “Run test call” still works (each job sets `simulate=true`).
 
 ## GPU (optional)
 

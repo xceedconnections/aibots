@@ -35,7 +35,7 @@ VICIdial inbound DID → closer in-group → live agent
 PUBLIC_IP=YOUR_AIBOTS_PUBLIC_IP
 AIBOTS_SIP_PASSWORD=aibotsSipPass123
 ASTERISK_AMI_HOST=YOUR_VICIDIAL_IP
-SIMULATE_MODE=true
+SIMULATE_MODE=false
 ```
 
 ```bash

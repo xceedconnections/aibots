@@ -2,9 +2,12 @@
 Minimal Asterisk AudioSocket server (slin / 8k PCM).
 
 Protocol (Asterisk AudioSocket):
-  After TCP accept, Asterisk may send UUID first.
+  After TCP accept, Asterisk sends UUID as type 0x01 with 16-byte BINARY uuid.
   Frames: 1-byte type + 2-byte big-endian length + payload
   type 0x00 = hangup, 0x01 = UUID, 0x10 = 16-bit PCM (usually 8kHz)
+
+Asterisk app_audiosocket disconnects after ~2s with no activity on either
+side — send silence keepalive while TTS/STT/API work runs.
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import asyncio
 import logging
 import struct
 import tempfile
+import uuid
 import wave
 from pathlib import Path
 
@@ -22,6 +26,25 @@ TYPE_UUID = 0x01
 TYPE_DTMF = 0x03
 TYPE_AUDIO = 0x10
 TYPE_ERROR = 0xFF
+
+# 20ms of silence @ 8kHz 16-bit mono
+SILENCE_20MS = b"\x00" * 320
+
+
+def decode_uuid_payload(payload: bytes) -> str:
+    """Asterisk sends 16-byte binary UUID; accept string form as fallback."""
+    if len(payload) >= 16:
+        try:
+            return str(uuid.UUID(bytes=payload[:16]))
+        except ValueError:
+            pass
+    text = payload.decode("utf-8", errors="ignore").strip().rstrip("\x00")
+    if text:
+        try:
+            return str(uuid.UUID(text))
+        except ValueError:
+            return text
+    return ""
 
 
 async def read_frame(reader: asyncio.StreamReader) -> tuple[int, bytes] | None:
@@ -44,12 +67,20 @@ async def write_audio(writer: asyncio.StreamWriter, pcm: bytes) -> None:
         await asyncio.sleep(0.02)
 
 
+async def write_silence(writer: asyncio.StreamWriter, duration_ms: int = 200) -> None:
+    """Keep AudioSocket alive (Asterisk ~2s idle timeout)."""
+    frames = max(1, duration_ms // 20)
+    for _ in range(frames):
+        writer.write(bytes([TYPE_AUDIO]) + struct.pack(">H", len(SILENCE_20MS)) + SILENCE_20MS)
+        await writer.drain()
+        await asyncio.sleep(0.02)
+
+
 def wav_to_pcm8k(path: str) -> bytes:
     """Convert WAV to 8kHz mono 16-bit PCM (best-effort)."""
     import audioop
     import subprocess
 
-    # Prefer ffmpeg if available
     out = tempfile.mktemp(suffix=".raw")
     try:
         proc = subprocess.run(
@@ -99,16 +130,16 @@ class CallAudioBridge:
         self.uuid = ""
         self._closed = False
 
-    async def handshake(self) -> str:
-        # Some Asterisk builds send UUID frame first
-        try:
-            self.reader._transport.set_write_buffer_limits(0)  # type: ignore
-        except Exception:
-            pass
-        return self.uuid
+    async def keepalive(self, duration_ms: int = 200) -> None:
+        if not self._closed:
+            await write_silence(self.writer, duration_ms)
 
     async def play_wav(self, wav_path: str) -> None:
         pcm = await asyncio.to_thread(wav_to_pcm8k, wav_path)
+        if not pcm:
+            logger.warning("Empty PCM for %s — playing brief silence", wav_path)
+            await self.keepalive(400)
+            return
         await write_audio(self.writer, pcm)
 
     async def listen(
@@ -126,9 +157,11 @@ class CallAudioBridge:
 
         while elapsed < max_ms and not self._closed:
             try:
-                frame = await asyncio.wait_for(read_frame(self.reader), timeout=1.0)
+                frame = await asyncio.wait_for(read_frame(self.reader), timeout=0.5)
             except asyncio.TimeoutError:
-                elapsed += 1000
+                elapsed += 500
+                # Nudge Asterisk so idle timeout does not tear down the socket
+                await self.keepalive(40)
                 if spoke and silent_ms >= silence_ms:
                     break
                 continue
@@ -143,14 +176,16 @@ class CallAudioBridge:
                 self._closed = True
                 break
             if ftype == TYPE_UUID:
-                self.uuid = payload.decode("utf-8", errors="ignore")
+                self.uuid = decode_uuid_payload(payload)
                 continue
             if ftype != TYPE_AUDIO or not payload:
                 continue
 
             buf.extend(payload)
-            # crude energy
-            energy = sum(abs(int.from_bytes(payload[i : i + 2], "little", signed=True)) for i in range(0, len(payload) - 1, 2)) / max(1, len(payload) // 2)
+            energy = sum(
+                abs(int.from_bytes(payload[i : i + 2], "little", signed=True))
+                for i in range(0, len(payload) - 1, 2)
+            ) / max(1, len(payload) // 2)
             if energy > energy_threshold:
                 spoke = True
                 silent_ms = 0

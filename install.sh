@@ -138,7 +138,7 @@ set_env "ADMIN_EMAIL" "$ADMIN_EMAIL"
 set_env "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
 set_env "POSTGRES_PASSWORD" "$DB_PASS"
 set_env "DATABASE_URL" "postgresql+asyncpg://aibots:${DB_PASS}@postgres:5432/aibots"
-set_env "SIMULATE_MODE" "true"
+set_env "SIMULATE_MODE" "false"
 set_env "SIP_MODE" "ip"
 
 sed -i "s|YOUR_AIBOTS_PUBLIC_IP|${PUBLIC_IP}|g" .env

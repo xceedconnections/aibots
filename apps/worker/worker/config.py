@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     audio_sample_rate: int = 16000
     silence_timeout_ms: int = 1200
     max_concurrent_calls: int = 4
-    simulate_mode: bool = True  # True until Asterisk RTP bridge is wired
+    simulate_mode: bool = False  # Live SIP uses AudioSocket; portal tests set simulate per-job
 
     class Config:
         env_file = ".env"

@@ -57,9 +57,20 @@ cd "$APP_DIR"
 # Ensure new env keys exist without overwriting secrets
 grep -q '^SIP_MODE=' .env 2>/dev/null || echo 'SIP_MODE=ip' >> .env
 grep -q '^ADMIN_PASSWORD=' .env 2>/dev/null || echo 'ADMIN_PASSWORD=Openaccount@123' >> .env
+# Live SIP must not force simulate (portal tests still send simulate=true per job)
+if grep -q '^SIMULATE_MODE=' .env 2>/dev/null; then
+  sed -i 's/^SIMULATE_MODE=.*/SIMULATE_MODE=false/' .env
+else
+  echo 'SIMULATE_MODE=false' >> .env
+fi
+
+echo "==> Ensuring Piper TTS models"
+if [[ -x "$APP_DIR/scripts/download-models.sh" ]]; then
+  PIPER_DIR="$APP_DIR/data/models/piper" bash "$APP_DIR/scripts/download-models.sh" || true
+fi
 
 echo "==> Rebuilding containers (api, portal, asterisk, worker, firewall)"
-docker compose up -d --build api portal asterisk worker firewall
+docker compose up -d --build --force-recreate api portal asterisk worker firewall
 
 echo "==> Waiting for API"
 for i in $(seq 1 60); do

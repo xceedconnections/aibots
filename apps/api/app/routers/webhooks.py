@@ -19,22 +19,37 @@ settings = get_settings()
 
 
 async def enqueue_call(session_id: int, payload: dict):
-    """Push new call job to Redis for the AI worker / AudioSocket."""
+    """
+    Queue call for worker.
+    - simulate=True  → portal test queue (text dry-run)
+    - simulate=False → live SIP: Redis key for AudioSocket (must be ready before AudioSocket connects)
+    """
     r = redis.from_url(settings.redis_url, decode_responses=True)
     try:
+        is_sim = bool(payload.get("simulate", False))
         job = {
             "call_session_id": session_id,
             **payload,
-            "simulate": payload.get("simulate", True),
+            "simulate": is_sim,
         }
-        uid = job.get("uniqueid") or job.get("call_id") or job.get("vicidial_call_id")
-        await r.lpush("aibots:call_queue", json.dumps(job))
+        uid = (job.get("uniqueid") or job.get("call_id") or job.get("vicidial_call_id") or "").strip()
         await r.set(f"aibots:call:{session_id}:status", "queued")
-        if uid and not job.get("simulate", True):
-            await r.setex(f"aibots:sip:{uid}", 180, json.dumps(job))
+
+        if is_sim:
+            await r.lpush("aibots:call_queue", json.dumps(job))
+            return
+
+        # Live SIP — stash BEFORE dialplan reaches AudioSocket
+        if uid:
+            raw = json.dumps(job)
+            await r.setex(f"aibots:sip:{uid}", 300, raw)
+            # Also push queue as safety net (worker will re-stash, not simulate)
+            await r.lpush("aibots:call_queue", raw)
             tdid = job.get("transfer_did")
             if tdid:
-                await r.setex(f"aibots:sip:{uid}:transfer_did", 600, tdid)
+                await r.setex(f"aibots:sip:{uid}:transfer_did", 600, str(tdid))
+        else:
+            await r.lpush("aibots:call_queue", json.dumps(job))
     finally:
         await r.aclose()
 
@@ -120,13 +135,48 @@ async def sip_call_start(payload: VicidialStartPayload, db: AsyncSession = Depen
     Start AI session from SIP INVITE headers.
     Called by AIBOTS Asterisk dialplan (docker network) or portal simulate tests.
     NOT a Vicidial Start Call URL — Vicidial only uses SIP carriers.
+
+    Always creates a CallSession so the portal Lists every SIP hit.
     """
     bot = await resolve_bot(db, payload)
+    call_uid = (payload.call_id or payload.uniqueid or "").strip() or None
+    extra = payload.extra or {}
+    is_sim = str(extra.get("simulate", "")).lower() in ("1", "true", "yes")
+    if (payload.phone or "").startswith("555"):
+        is_sim = True
+
     if not bot:
-        raise HTTPException(404, "No active bot found for this call")
+        # Still record the hit — portal must show every call that reached AIBOTS
+        session = CallSession(
+            bot_id=None,
+            vicidial_call_id=call_uid,
+            lead_id=payload.lead_id,
+            phone=payload.phone,
+            campaign=payload.campaign,
+            status=CallStatus.FAILED,
+            variables={
+                "error": "no_active_bot",
+                "client_id": payload.client_id,
+                "remote_agent": payload.remote_agent,
+            },
+            transcript=[{"role": "system", "text": "SIP hit but no active bot matched"}],
+        )
+        db.add(session)
+        await db.flush()
+        await db.refresh(session)
+        return CallStartResponse(
+            call_session_id=session.id,
+            bot_id=None,
+            greeting="",
+            first_question=None,
+            first_question_id=None,
+            status=session.status,
+            transfer_did=None,
+            client_id=payload.client_id,
+            remote_agent=payload.remote_agent,
+        )
 
     start_q = await get_start_question(db, bot.id)
-    call_uid = payload.call_id or payload.uniqueid
 
     session = CallSession(
         bot_id=bot.id,
@@ -147,11 +197,6 @@ async def sip_call_start(payload: VicidialStartPayload, db: AsyncSession = Depen
     db.add(session)
     await db.flush()
     await db.refresh(session)
-
-    extra = payload.extra or {}
-    is_sim = str(extra.get("simulate", "")).lower() in ("1", "true", "yes")
-    if (payload.phone or "").startswith("555"):
-        is_sim = True
 
     await enqueue_call(
         session.id,

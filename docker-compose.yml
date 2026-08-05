@@ -107,7 +107,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       API_INTERNAL_URL: http://api:8000
-      SIMULATE_MODE: ${SIMULATE_MODE:-true}
+      # Portal tests still send simulate=true per job. Live SIP always uses AudioSocket.
+      SIMULATE_MODE: ${SIMULATE_MODE:-false}
     ports:
       - "9092:9092"
     volumes:
