@@ -71,7 +71,7 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${{phone_number}})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-a)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27001)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${{campaign_id}})
-same => n,Dial(SIP/aibots,60,tT)
+same => n,Dial(SIP/aibots/27001,60,tT)
 same => n,Hangup()
 
 exten => _27002,1,AGI(agi://127.0.0.1:4577/call_log)
@@ -81,7 +81,7 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${{phone_number}})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-b)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27016)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${{campaign_id}})
-same => n,Dial(SIP/aibots,60,tT)
+same => n,Dial(SIP/aibots/27002,60,tT)
 same => n,Hangup()"""
 
     xfer_dialplan = """exten => _37000,1,AGI(agi://127.0.0.1:4577/call_log)
