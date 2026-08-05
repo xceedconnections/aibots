@@ -92,6 +92,20 @@ qualify=yes
 Also fix DNS if logs show `Unable to lookup 'vicibox9'`:
 `echo '127.0.0.1 vicibox9' >> /etc/hosts` (or the real LAN IP).
 
+### Vicibox `[from-aibots]` (Custom Dialplan Entry)
+
+Use this **only** (Admin → System Settings → Custom Dialplan Entry).  
+Do **not** add `exten => _X.,1,Goto(default,${EXTEN},1)` — that often breaks outbound and plays *“number not in service”*.
+
+```
+[from-aibots]
+exten => _1060XXXXXX,1,Goto(default,${EXTEN},1)
+exten => _.,1,NoOp(Ignore AIBOTS signalling ${EXTEN})
+ same => n,Hangup()
+```
+
+Peer `[aibots]` must use `context=from-aibots`.
+
 ## VICIdial — virtual DIDs
 
 Create DIDs e.g. `106027001`, `106027002` and route each to a closer in-group.
