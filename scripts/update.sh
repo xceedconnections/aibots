@@ -81,10 +81,17 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
+echo "==> SIP path self-check"
+docker exec aibots-asterisk grep -q 'AudioSocket(${ASUUID},worker:9092)' /etc/asterisk/extensions.conf \
+  && echo "Dialplan AudioSocket OK" || echo "WARN: dialplan missing AudioSocket(uuid,worker)"
+docker exec aibots-asterisk curl -fsS "http://api:8000/internal/sip/ping" && echo "" || echo "WARN: asterisk→api CURL failed"
+docker exec aibots-asterisk curl -fsS "http://api:8000/internal/sip/new-uuid" && echo "" || echo "WARN: new-uuid failed"
+
 echo ""
 echo "Update complete."
 echo "  Portal: http://$(hostname -I | awk '{print $1}'):3000"
 echo "  Login:  see ADMIN_EMAIL / ADMIN_PASSWORD in $APP_DIR/.env"
+echo "  Diagnose: sudo bash $APP_DIR/scripts/diagnose-sip.sh"
 echo "  Vicidial: carriers + DIDs + remote agents only (no webhooks)"
 echo ""
 echo "Hard refresh browser (Ctrl+F5). Check Portal → SIP Carrier / VICIdial Servers."

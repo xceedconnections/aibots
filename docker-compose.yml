@@ -140,6 +140,8 @@ services:
       - "10000-10100:10000-10100/udp"
     volumes:
       - ./data/asterisk/pjsip_identify.conf:/etc/asterisk/pjsip_identify.conf
+      # Live dialplan mount so AudioSocket fixes apply without image-cache surprises
+      - ./docker/asterisk/conf/extensions.conf:/etc/asterisk/extensions.conf:ro
     depends_on:
       - api
       - worker

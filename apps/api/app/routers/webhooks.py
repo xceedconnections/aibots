@@ -1,4 +1,6 @@
 import json
+import logging
+import uuid
 from datetime import datetime, timezone
 
 import redis.asyncio as redis
@@ -16,6 +18,20 @@ from app.services.vicidial import mark_sip_hangup, transfer_to_closer, update_le
 
 router = APIRouter(tags=["sip-internal"])
 settings = get_settings()
+logger = logging.getLogger("aibots.sip")
+
+
+@router.get("/internal/sip/new-uuid")
+async def sip_new_uuid():
+    """INTERNAL — plain-text UUID for Asterisk AudioSocket (no SHELL needed)."""
+    return Response(content=str(uuid.uuid4()), media_type="text/plain")
+
+
+@router.get("/internal/sip/ping")
+async def sip_ping():
+    """INTERNAL — dialplan/CURL health check."""
+    return Response(content="ok", media_type="text/plain")
+
 
 
 async def enqueue_call(session_id: int, payload: dict):
@@ -144,6 +160,17 @@ async def sip_call_start(payload: VicidialStartPayload, db: AsyncSession = Depen
     is_sim = str(extra.get("simulate", "")).lower() in ("1", "true", "yes")
     if (payload.phone or "").startswith("555"):
         is_sim = True
+
+    logger.info(
+        "SIP call-start uid=%s phone=%s client=%s agent=%s camp=%s bot=%s sim=%s",
+        call_uid,
+        payload.phone,
+        payload.client_id,
+        payload.remote_agent,
+        payload.campaign,
+        bot.id if bot else None,
+        is_sim,
+    )
 
     if not bot:
         # Still record the hit — portal must show every call that reached AIBOTS

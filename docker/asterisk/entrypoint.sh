@@ -24,4 +24,10 @@ fi
 
 command -v curl >/dev/null || true
 
+echo "==> Dialplan AudioSocket check:"
+grep -n "AudioSocket\|new-uuid\|from-vicidial" /etc/asterisk/extensions.conf | head -20 || true
+
+# Quick DNS check for AI worker (AudioSocket target)
+getent hosts worker 2>/dev/null || ping -c1 -W1 worker 2>/dev/null || echo "WARN: cannot resolve worker"
+
 exec asterisk -f -vvv
