@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import auth, bots, carrier, dashboard, webhooks
+from app.routers import auth, bots, campaigns, carrier, dashboard, settings_portal, vicidialers, webhooks
 
 settings = get_settings()
 
@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     description="Self-hosted VICIdial AI Voice Bot Platform",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -33,7 +33,10 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(bots.router)
+app.include_router(campaigns.router)
 app.include_router(carrier.router)
+app.include_router(vicidialers.router)
+app.include_router(settings_portal.router)
 app.include_router(webhooks.router)
 app.include_router(dashboard.router)
 

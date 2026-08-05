@@ -1,80 +1,139 @@
-# Vendor-style SIP Carrier Mode (like commercial AI bots)
+# SIP Carrier Mode — commercial AI bot pattern (no Vicidial webhooks)
 
-AIBOTS can integrate the same way most AI dialer vendors do:
+VICIdial only needs:
 
-1. You create a **Carrier** in VICIdial pointing at AIBOTS SIP
-2. Your campaign uses that carrier
-3. When the customer answers, audio goes to AIBOTS Asterisk → AI engine
-4. When qualified, call transfers to your closer campaign
+1. An **AI carrier** (IP peer + dialplan → AIBOTS)
+2. A **transfer / Ctransfer carrier** (optional prefixes)
+3. **Remote agents** (e.g. 27001)
+4. **Virtual DIDs** routed to closer in-groups (e.g. 106027001)
 
-**No Start Call URL required. No editing VICIdial `manager.conf` required** for the basic SIP path.
+**No Start Call URL. No Dispo URL. No HTTP webhook on Vicidial.**
+Vicidial talks to AIBOTS over **SIP only** (same as other AI bot vendors).
 
-## Architecture
+## Call flow
 
 ```
-VICIdial Campaign
+Outbound campaign (carrier = AIBOTS)
       │
-      │ Carrier: AIBOTS (SIP)
+      │ Dial(SIP/aibots@AIBOTS_IP) + X-VICIdial-* headers
       ▼
-AIBOTS Asterisk :5060
-      │
-      ├─ CURL → API (start session / load bot script)
-      └─ AudioSocket → Worker (Whisper + Piper + decision engine)
+AIBOTS Asterisk
+      │  reads Lead-Id, Caller-Id, Client-Id, User-Id, Campaign-Id
+      ├─ CURL → API (pick bot by Client-Id / Remote Agent)
+      └─ AudioSocket → AI (Whisper + script + Piper)
               │
-              ▼ (qualified)
-         Transfer → closer via SIP/AMI
+              ▼ qualified
+         Dial(PJSIP/{TRANSFER_DID}@vicidial-out)
+              │
+              ▼
+VICIdial inbound DID → closer in-group → live agent
 ```
 
-## Portal
-
-Open **SIP Carrier** in the portal for copy-paste values.
-
-## .env on AIBOTS
+## AIBOTS `.env`
 
 ```env
-PUBLIC_IP=168.119.115.117
+PUBLIC_IP=YOUR_AIBOTS_PUBLIC_IP
 AIBOTS_SIP_PASSWORD=aibotsSipPass123
-ASTERISK_AMI_HOST=62.238.46.190
+ASTERISK_AMI_HOST=YOUR_VICIDIAL_IP
 SIMULATE_MODE=true
 ```
 
-`SIMULATE_MODE=true` keeps portal **Run test call** working. Live SIP calls set `simulate=false` automatically.
-
-## Start Asterisk
-
 ```bash
-cd /opt/aibots
-# set PUBLIC_IP + AIBOTS_SIP_PASSWORD in .env
 sudo ufw allow from YOUR_VICIDIAL_IP to any port 5060 proto udp
 sudo ufw allow from YOUR_VICIDIAL_IP to any port 10000:10100 proto udp
-sudo docker compose up -d --build asterisk worker api portal
+cd /opt/aibots && sudo docker compose up -d --build asterisk worker api portal
 ```
 
-## VICIdial steps
+## VICIdial — AI Carrier dialplan
 
-1. **Admin → Carriers → Add**
-   - Account: `AIBOTS`
-   - Protocol: `SIP`
-   - Globals: `SIP/aibots@YOUR_AIBOTS_IP`
-2. On VICIdial Asterisk, add SIP peer (or PJSIP equivalent) to AIBOTS host (portal shows exact text).
-3. Assign carrier **AIBOTS** to your outbound campaign.
-4. In AIBOTS portal bot: set **Campaign** + **Transfer campaign** to match VICIdial.
+Paste into **Admin → Carriers → AIBOTS → Dialplan** (match Client-Id / User-Id to bots):
 
-## Test without live dials
+```
+exten => _27001,1,AGI(agi://127.0.0.1:4577/call_log)
+same => n,AGI(agi-set_variables.agi,)
+same => n,SIPAddHeader(X-VICIdial-Lead-Id: ${lead_id})
+same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${phone_number})
+same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-a)
+same => n,SIPAddHeader(X-VICIdial-User-Id: 27001)
+same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${campaign_id})
+same => n,Dial(SIP/aibots@YOUR_AIBOTS_IP)
+same => n,Hangup()
 
-Portal → Bot → **Run test call** (simulate).
+exten => _27002,1,AGI(agi://127.0.0.1:4577/call_log)
+same => n,AGI(agi-set_variables.agi,)
+same => n,SIPAddHeader(X-VICIdial-Lead-Id: ${lead_id})
+same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${phone_number})
+same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-b)
+same => n,SIPAddHeader(X-VICIdial-User-Id: 27016)
+same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${campaign_id})
+same => n,Dial(SIP/aibots@YOUR_AIBOTS_IP)
+same => n,Hangup()
+```
 
-## Live path checklist
+Globals example: `SIP/aibots@YOUR_AIBOTS_IP`
 
-- [ ] `PUBLIC_IP` correct
-- [ ] UDP 5060 + RTP open from VICIdial IP
-- [ ] Carrier assigned to campaign
-- [ ] Bot campaign name matches
-- [ ] `docker logs -f aibots-asterisk`
-- [ ] `docker logs -f aibots-worker`
+On VICIdial Asterisk, SIP peer toward AIBOTS (portal **SIP Carrier** shows exact text):
 
-## Notes
+```
+[aibots]
+host=YOUR_AIBOTS_IP
+username=aibots
+secret=aibotsSipPass123
+type=peer
+disallow=all
+allow=ulaw
+insecure=port,invite
+nat=force_rport,comedia
+```
 
-- First live audio quality depends on Piper model download + Whisper model load.
-- Closer transfer dialplan may need tuning for your in-group; share closer name for exact Dial() string.
-- Legacy Start Call URL + AMI still exist as fallback but are not required for carrier mode.
+## VICIdial — virtual DIDs
+
+Create DIDs e.g. `106027001`, `106027002` and route each to a closer in-group.
+
+## VICIdial — optional Ctransfer carrier
+
+```
+exten => _37000,1,AGI(agi://127.0.0.1:4577/call_log)
+same => n,Set(DID=106027001)
+same => n,Dial(SIP/Ctransfer1/${DID},,tTor)
+same => n,Hangup()
+
+exten => _67000,1,AGI(agi://127.0.0.1:4577/call_log)
+same => n,Set(DID=106027001)
+same => n,Dial(SIP/Ctransfer1/${DID},,tTor)
+same => n,Hangup()
+
+exten => _67001,1,AGI(agi://127.0.0.1:4577/call_log)
+same => n,Set(DID=106027002)
+same => n,Dial(SIP/Ctransfer1/${DID},,tTor)
+same => n,Hangup()
+```
+
+AIBOTS itself dials the virtual DID directly on transfer; Ctransfer is only needed if you also use Vicidial-side transfer prefixes.
+
+## VICIdial — remote agents
+
+Create remote agents `27001`, `27016`, etc. matching `X-VICIdial-User-Id`.
+
+## AIBOTS portal — bot fields
+
+| Field | Example | Maps to |
+|-------|---------|---------|
+| Client ID | `CID_0006-a` | `X-VICIdial-Client-Id` |
+| Remote Agent | `27001` | `X-VICIdial-User-Id` |
+| Transfer DID | `106027001` | Virtual DID → closers |
+| Campaign | your campaign id | `X-VICIdial-Campaign-Id` |
+| Transfer campaign | closer in-group name | labeling / optional API |
+
+Portal → **SIP Carrier** has the full copy-paste pack.
+
+## Checklist
+
+- [ ] `PUBLIC_IP` + SIP password set; Asterisk container up
+- [ ] UDP 5060 + RTP open from Vicidial IP
+- [ ] AI carrier + dialplan + SIP peer on Vicidial
+- [ ] Remote agents created
+- [ ] Virtual DIDs → closer groups
+- [ ] Bot Client ID / Remote Agent / Transfer DID match dialplan
+- [ ] Carrier assigned to outbound campaign
+- [ ] `docker logs -f aibots-asterisk` and `aibots-worker` on first live dial

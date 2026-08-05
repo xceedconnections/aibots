@@ -220,6 +220,7 @@ async def process_turn(
             reply_text=reply,
             variables=variables,
             transfer_campaign=bot.transfer_campaign,
+            transfer_did=bot.transfer_did,
             done=True,
         )
 
@@ -293,5 +294,6 @@ async def process_turn(
         reply_text=reply,
         variables=variables,
         transfer_campaign=bot.transfer_campaign,
+        transfer_did=bot.transfer_did,
         done=True,
     )

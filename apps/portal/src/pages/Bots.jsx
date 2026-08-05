@@ -6,6 +6,9 @@ const empty = {
   name: '',
   campaign: '',
   transfer_campaign: '',
+  client_id: '',
+  remote_agent: '',
+  transfer_did: '',
   language: 'en',
   voice: 'en_US-lessac-medium',
   model: 'qwen2.5:7b-instruct',
@@ -66,7 +69,7 @@ export default function Bots() {
       <header className="page-head">
         <div>
           <h1>Bots</h1>
-          <p className="muted">Create AI agents mapped to VICIdial campaigns</p>
+          <p className="muted">Create AI agents — map Client ID, Remote Agent, Transfer DID to VICIdial</p>
         </div>
         <button className="btn primary" onClick={() => setShow(true)}>New bot</button>
       </header>
@@ -80,8 +83,10 @@ export default function Bots() {
               <h3>{b.name}</h3>
               <span className={`pill ${b.active ? 'ok' : 'off'}`}>{b.active ? 'Active' : 'Paused'}</span>
             </div>
-            <p className="mono">{b.campaign} → {b.transfer_campaign}</p>
-            <p className="muted">{b.language} · {b.voice}</p>
+            <p className="mono">{b.campaign} → DID {b.transfer_did || b.transfer_campaign}</p>
+            <p className="muted">
+              {b.client_id || 'no client-id'} · RA {b.remote_agent || '—'} · {b.voice}
+            </p>
             <div className="row gap">
               <Link className="btn" to={`/bots/${b.id}`}>Edit script</Link>
               <button className="btn ghost" onClick={() => toggle(b)}>{b.active ? 'Pause' : 'Activate'}</button>
@@ -100,13 +105,16 @@ export default function Bots() {
             {[
               ['name', 'Bot name'],
               ['campaign', 'VICIdial campaign'],
-              ['transfer_campaign', 'Closer / transfer campaign'],
+              ['client_id', 'Client ID (X-VICIdial-Client-Id)'],
+              ['remote_agent', 'Remote Agent (User-Id e.g. 27001)'],
+              ['transfer_did', 'Transfer DID (e.g. 106027001)'],
+              ['transfer_campaign', 'Closer in-group name'],
               ['greeting', 'Greeting'],
             ].map(([key, label]) => (
               <label key={key}>
                 {label}
                 <input
-                  required={key !== 'greeting'}
+                  required={['name', 'campaign', 'transfer_campaign'].includes(key)}
                   value={form[key]}
                   onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                 />

@@ -21,19 +21,36 @@ async def seed_sample_bot(db: AsyncSession) -> Bot:
     bot = existing.scalar_one_or_none()
     if bot:
         logger.info("Sample bot already exists id=%s", bot.id)
+        # Backfill vendor fields on older installs
+        changed = False
+        if not bot.client_id:
+            bot.client_id = "CID_0006-a"
+            changed = True
+        if not bot.remote_agent:
+            bot.remote_agent = "27001"
+            changed = True
+        if not bot.transfer_did:
+            bot.transfer_did = "106027001"
+            changed = True
+        if changed:
+            await db.flush()
+            logger.info("Backfilled vendor SIP fields on sample bot")
         return bot
 
     bot = Bot(
         name="ACA Qualifier",
         campaign="ACA2026",
         transfer_campaign="ACA_CLOSERS",
+        client_id="CID_0006-a",
+        remote_agent="27001",
+        transfer_did="106027001",
         language="en",
         voice="en_US-lessac-medium",
         model=settings.llm_model,
         temperature=0.2,
         greeting="Hello, this is Alex calling about your health insurance options. Do you have a moment?",
         active=True,
-        description="Sample ACA qualification script with transfer to closer campaign.",
+        description="Sample ACA qualification script — Vicidial carrier + remote agent + virtual DID transfer.",
     )
     db.add(bot)
     await db.flush()
@@ -146,9 +163,50 @@ async def seed_sample_bot(db: AsyncSession) -> Bot:
     return bot
 
 
+async def ensure_vendor_columns(conn):
+    """Add vendor SIP columns + CRM tables on existing DBs."""
+    from sqlalchemy import text
+
+    alters = [
+        "ALTER TABLE bots ADD COLUMN IF NOT EXISTS client_id VARCHAR(100)",
+        "ALTER TABLE bots ADD COLUMN IF NOT EXISTS remote_agent VARCHAR(50)",
+        "ALTER TABLE bots ADD COLUMN IF NOT EXISTS transfer_did VARCHAR(30)",
+        """
+        CREATE TABLE IF NOT EXISTS vicidial_servers (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            host VARCHAR(255) NOT NULL,
+            sip_ip VARCHAR(100),
+            api_url VARCHAR(255),
+            api_user VARCHAR(50),
+            api_pass VARCHAR(100),
+            notes TEXT,
+            active BOOLEAN DEFAULT true,
+            created_at TIMESTAMPTZ
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key VARCHAR(100) PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMPTZ
+        )
+        """,
+    ]
+    for sql in alters:
+        await conn.execute(text(sql))
+    try:
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bots_client_id ON bots (client_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_bots_remote_agent ON bots (remote_agent)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_vicidial_servers_name ON vicidial_servers (name)"))
+    except Exception:
+        pass
+
+
 async def seed():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await ensure_vendor_columns(conn)
 
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(User).where(User.email == settings.admin_email))

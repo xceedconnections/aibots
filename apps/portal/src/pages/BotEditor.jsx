@@ -35,6 +35,9 @@ export default function BotEditor() {
         name: bot.name,
         campaign: bot.campaign,
         transfer_campaign: bot.transfer_campaign,
+        client_id: bot.client_id || null,
+        remote_agent: bot.remote_agent || null,
+        transfer_did: bot.transfer_did || null,
         greeting: bot.greeting,
         voice: bot.voice,
         model: bot.model,
@@ -120,7 +123,11 @@ export default function BotEditor() {
         <div>
           <Link className="muted" to="/bots">← Bots</Link>
           <h1>{bot.name}</h1>
-          <p className="mono muted">{bot.campaign} → {bot.transfer_campaign}</p>
+          <p className="mono muted">
+            {bot.campaign} → DID {bot.transfer_did || '—'}
+            {bot.remote_agent ? ` · RA ${bot.remote_agent}` : ''}
+            {bot.client_id ? ` · ${bot.client_id}` : ''}
+          </p>
         </div>
         <button className="btn primary" onClick={testCall}>Run test call</button>
       </header>
@@ -131,8 +138,38 @@ export default function BotEditor() {
       <form className="panel form-grid" onSubmit={saveBot}>
         <h2>Bot settings</h2>
         <label>Name<input value={bot.name} onChange={(e) => setBot({ ...bot, name: e.target.value })} /></label>
-        <label>Campaign<input value={bot.campaign} onChange={(e) => setBot({ ...bot, campaign: e.target.value })} /></label>
-        <label>Transfer campaign<input value={bot.transfer_campaign} onChange={(e) => setBot({ ...bot, transfer_campaign: e.target.value })} /></label>
+        <label>Campaign<input value={bot.campaign || ''} onChange={(e) => setBot({ ...bot, campaign: e.target.value })} /></label>
+        <label>
+          Client ID
+          <input
+            placeholder="CID_0006-a"
+            value={bot.client_id || ''}
+            onChange={(e) => setBot({ ...bot, client_id: e.target.value })}
+          />
+        </label>
+        <label>
+          Remote Agent
+          <input
+            placeholder="27001"
+            value={bot.remote_agent || ''}
+            onChange={(e) => setBot({ ...bot, remote_agent: e.target.value })}
+          />
+        </label>
+        <label>
+          Transfer DID
+          <input
+            placeholder="106027001"
+            value={bot.transfer_did || ''}
+            onChange={(e) => setBot({ ...bot, transfer_did: e.target.value })}
+          />
+        </label>
+        <label>
+          Transfer campaign / in-group
+          <input
+            value={bot.transfer_campaign || ''}
+            onChange={(e) => setBot({ ...bot, transfer_campaign: e.target.value })}
+          />
+        </label>
         <label>Voice<input value={bot.voice} onChange={(e) => setBot({ ...bot, voice: e.target.value })} /></label>
         <label>LLM model<input value={bot.model} onChange={(e) => setBot({ ...bot, model: e.target.value })} /></label>
         <label className="full">Greeting<textarea rows={2} value={bot.greeting} onChange={(e) => setBot({ ...bot, greeting: e.target.value })} /></label>
@@ -232,12 +269,15 @@ export default function BotEditor() {
       </section>
 
       <section className="panel">
-        <h2>VICIdial webhook</h2>
-        <p className="muted">Set campaign Start Call URL / Dispo URL (or AGI) to:</p>
+        <h2>VICIdial setup (no scripts)</h2>
+        <p className="muted">
+          Open <strong>SIP Carrier</strong> in the portal for full copy-paste dialplans.
+          On this bot set Client ID, Remote Agent, and Transfer DID to match your VICIdial
+          carrier headers and virtual DID. Assign the AI carrier to the campaign — nothing else.
+        </p>
         <code className="block mono">
-          http://YOUR_AIBOTS_IP/webhook/vicidial/start?campaign={bot.campaign}&amp;bot_id={bot.id}
+          Client-Id: {bot.client_id || 'CID_0006-a'} · User-Id / Remote Agent: {bot.remote_agent || '27001'} · Transfer DID: {bot.transfer_did || '106027001'}
         </code>
-        <p className="muted">POST fields supported: call_id, lead_id, phone / phone_number, campaign, channel, uniqueid</p>
       </section>
     </div>
   )

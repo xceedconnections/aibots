@@ -86,10 +86,18 @@ export const api = {
     request(`/bots/answers/${aid}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAnswer: (aid) => request(`/bots/answers/${aid}`, { method: 'DELETE' }),
   startTestCall: (payload) =>
-    request('/webhook/vicidial/start', {
+    request('/internal/sip/call-start', {
       method: 'POST',
       body: JSON.stringify({ ...payload, extra: { ...(payload.extra || {}), simulate: true } }),
     }),
   listCalls: () => request('/calls'),
   carrierConfig: () => request('/carrier/config'),
+  listCampaigns: () => request('/campaigns'),
+  listVicidialers: () => request('/vicidialers'),
+  createVicidialer: (data) => request('/vicidialers', { method: 'POST', body: JSON.stringify(data) }),
+  updateVicidialer: (id, data) => request(`/vicidialers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteVicidialer: (id) => request(`/vicidialers/${id}`, { method: 'DELETE' }),
+  syncVicidialersAsterisk: () => request('/vicidialers/sync-asterisk', { method: 'POST' }),
+  getSettings: () => request('/settings'),
+  updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
 }

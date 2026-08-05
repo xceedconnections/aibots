@@ -62,12 +62,20 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-xceedconnections@gmail.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Openaccount@123}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      ASTERISK_IDENTIFY_PATH: /data/asterisk/pjsip_identify.conf
+      PUBLIC_IP: ${PUBLIC_IP:-127.0.0.1}
+      ASTERISK_AMI_HOST: ${ASTERISK_AMI_HOST:-127.0.0.1}
+      ASTERISK_AMI_RELOAD_HOST: asterisk
+      ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
+      ASTERISK_AMI_USER: ${ASTERISK_AMI_USER:-aibots}
+      ASTERISK_AMI_SECRET: ${ASTERISK_AMI_SECRET:-ami_secret}
     ports:
       - "8000:8000"
     volumes:
       - ./apps/api:/app
       - ./data/recordings:/recordings
       - ./data/models:/models
+      - ./data/asterisk:/data/asterisk
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,6 +137,8 @@ services:
       - "5060:5060/tcp"
       - "5038:5038"
       - "10000-10100:10000-10100/udp"
+    volumes:
+      - ./data/asterisk/pjsip_identify.conf:/etc/asterisk/pjsip_identify.conf
     depends_on:
       - api
       - worker

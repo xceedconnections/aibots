@@ -63,15 +63,20 @@ sudo bash scripts/test-call.sh
 sudo docker logs -f aibots-worker
 ```
 
-### Point VICIdial at AIBOTS
+### Point VICIdial at AIBOTS (SIP carrier only — no HTTP webhook)
 
-Campaign Start Call URL:
+On VICIdial you only configure:
 
-```
-http://YOUR_UBUNTU_IP/webhook/vicidial/start?campaign=ACA2026&bot_id=1
-```
+1. AI SIP carrier → AIBOTS IP (IP peer, no registration)
+2. Remote agents
+3. Virtual DIDs → closer in-groups
+4. Optional Ctransfer carrier
 
-Details: [VICIDIAL.md](VICIDIAL.md)
+**Do not** set any Start Call URL / Dispo URL / webhook on Vicidial.
+Vicidial never calls AIBOTS over HTTP — only SIP.
+
+Portal → **SIP Carrier** and **VICIdial Servers** have the copy-paste pack.
+Details: [SIP-CARRIER.md](SIP-CARRIER.md) · [VICIDIAL.md](VICIDIAL.md)
 
 ## Useful commands
 

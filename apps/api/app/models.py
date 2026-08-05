@@ -68,6 +68,10 @@ class Bot(Base):
     name: Mapped[str] = mapped_column(String(255), index=True)
     campaign: Mapped[str] = mapped_column(String(100), index=True)
     transfer_campaign: Mapped[str] = mapped_column(String(100))
+    # Vendor-style VICIdial mapping (carrier + remote agent + virtual DID)
+    client_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    remote_agent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    transfer_did: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     language: Mapped[str] = mapped_column(String(20), default="en")
     voice: Mapped[str] = mapped_column(String(50), default="en_US-lessac-medium")
     model: Mapped[str] = mapped_column(String(100), default="qwen2.5:7b-instruct")
@@ -155,3 +159,30 @@ class CallSession(Base):
         back_populates="calls",
         foreign_keys=[bot_id],
     )
+
+
+class VicidialServer(Base):
+    """Registered VICIdial dialer boxes (like AI AMD servers list)."""
+
+    __tablename__ = "vicidial_servers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    host: Mapped[str] = mapped_column(String(255))
+    sip_ip: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    api_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    api_user: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    api_pass: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AppSetting(Base):
+    """Key/value portal settings (public IP, SIP password display, defaults)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

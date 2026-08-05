@@ -125,18 +125,23 @@ async def run_live_session(bridge: CallAudioBridge, session: dict, voice: str | 
         action = decision.get("action")
         if decision.get("done") or action in ("transfer", "hangup"):
             if action == "transfer":
-                # Signal Asterisk via Redis for AMI redirect (optional)
+                # Dialplan picks this up after AudioSocket via /internal/sip/{uid}/xfer
                 r = redis.from_url(settings.redis_url, decode_responses=True)
-                await r.publish(
-                    "aibots:transfer",
-                    json.dumps(
-                        {
-                            "call_session_id": call_id,
-                            "channel": session.get("channel"),
-                            "closer": decision.get("transfer_campaign"),
-                        }
-                    ),
-                )
+                uid = session.get("uniqueid") or session.get("vicidial_call_id") or ""
+                did = decision.get("transfer_did") or session.get("transfer_did") or ""
+                if uid and did:
+                    await r.setex(f"aibots:sip:{uid}:xfer", 300, did)
+                    await r.publish(
+                        "aibots:transfer",
+                        json.dumps(
+                            {
+                                "call_session_id": call_id,
+                                "channel": session.get("channel"),
+                                "transfer_did": did,
+                                "closer": decision.get("transfer_campaign"),
+                            }
+                        ),
+                    )
                 await r.aclose()
             break
 

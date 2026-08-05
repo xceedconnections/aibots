@@ -93,6 +93,9 @@ class BotCreate(BaseModel):
     name: str
     campaign: str
     transfer_campaign: str
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
+    transfer_did: Optional[str] = None
     language: str = "en"
     voice: str = "en_US-lessac-medium"
     model: str = "qwen2.5:7b-instruct"
@@ -106,6 +109,9 @@ class BotUpdate(BaseModel):
     name: Optional[str] = None
     campaign: Optional[str] = None
     transfer_campaign: Optional[str] = None
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
+    transfer_did: Optional[str] = None
     language: Optional[str] = None
     voice: Optional[str] = None
     model: Optional[str] = None
@@ -130,6 +136,9 @@ class BotListItem(BaseModel):
     name: str
     campaign: str
     transfer_campaign: str
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
+    transfer_did: Optional[str] = None
     language: str
     voice: str
     active: bool
@@ -146,6 +155,8 @@ class VicidialStartPayload(BaseModel):
     phone: Optional[str] = None
     campaign: Optional[str] = None
     bot_id: Optional[int] = None
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
     uniqueid: Optional[str] = None
     channel: Optional[str] = None
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -164,6 +175,7 @@ class DecisionResult(BaseModel):
     next_question_id: Optional[int] = None
     variables: dict[str, Any] = Field(default_factory=dict)
     transfer_campaign: Optional[str] = None
+    transfer_did: Optional[str] = None
     done: bool = False
 
 
@@ -194,6 +206,9 @@ class CallStartResponse(BaseModel):
     first_question: Optional[str] = None
     first_question_id: Optional[int] = None
     status: CallStatus
+    transfer_did: Optional[str] = None
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
 
 
 class DashboardStats(BaseModel):
@@ -205,3 +220,66 @@ class DashboardStats(BaseModel):
     rejected_today: int
     avg_duration_seconds: float
     qualification_rate: float
+
+
+# ---- VICIdial servers ----
+class VicidialServerCreate(BaseModel):
+    name: str
+    host: str
+    sip_ip: Optional[str] = None
+    api_url: Optional[str] = None
+    api_user: Optional[str] = None
+    api_pass: Optional[str] = None
+    notes: Optional[str] = None
+    active: bool = True
+
+
+class VicidialServerUpdate(BaseModel):
+    name: Optional[str] = None
+    host: Optional[str] = None
+    sip_ip: Optional[str] = None
+    api_url: Optional[str] = None
+    api_user: Optional[str] = None
+    api_pass: Optional[str] = None
+    notes: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class VicidialServerOut(VicidialServerCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Settings ----
+class SettingsOut(BaseModel):
+    public_ip: str
+    aibots_sip_password: str
+    sip_port: int = 5060
+    vicidial_url: str
+    vicidial_user: str
+    default_transfer_did: str = ""
+    admin_email: str
+    notes: list[str] = Field(default_factory=list)
+
+
+class SettingsUpdate(BaseModel):
+    public_ip: Optional[str] = None
+    aibots_sip_password: Optional[str] = None
+    vicidial_url: Optional[str] = None
+    vicidial_user: Optional[str] = None
+    default_transfer_did: Optional[str] = None
+
+
+class CampaignRow(BaseModel):
+    bot_id: int
+    name: str
+    campaign: str
+    client_id: Optional[str] = None
+    remote_agent: Optional[str] = None
+    transfer_did: Optional[str] = None
+    transfer_campaign: str
+    active: bool
+    dialplan_snippet: str

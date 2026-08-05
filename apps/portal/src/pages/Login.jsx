@@ -30,12 +30,13 @@ export default function Login() {
         <div className="brand login-brand">
           <span className="brand-mark">AI</span>
           <div>
-            <strong>AIBOTS</strong>
-            <small>Self-hosted voice agents</small>
+            <h1 style={{ margin: 0, fontSize: '1.2rem' }}>AIBOTS</h1>
+            <p style={{ margin: '0.15rem 0 0', color: 'var(--muted)', fontSize: '0.78rem' }}>
+              VICIdial Voice Agents
+            </p>
           </div>
         </div>
-        <h1>Sign in</h1>
-        <p className="muted">Manage bots, scripts, and VICIdial transfers.</p>
+        <p className="muted">Campaigns, bots, Vicidialers, and SIP carrier settings.</p>
         {error && <div className="alert">{error}</div>}
         <label>
           Email

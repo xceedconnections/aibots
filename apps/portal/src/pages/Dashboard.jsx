@@ -36,7 +36,10 @@ export default function Dashboard() {
           <h1>Dashboard</h1>
           <p className="muted">Live qualification and transfer performance</p>
         </div>
-        <Link className="btn primary" to="/bots">Manage bots</Link>
+        <div className="row gap">
+          <Link className="btn primary" to="/campaigns">Campaigns</Link>
+          <Link className="btn" to="/vicidialers">VICIdial Servers</Link>
+        </div>
       </header>
 
       <div className="stat-grid">

@@ -1,6 +1,10 @@
 FROM andrius/asterisk:latest
 
 USER root
+RUN (apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*) \
+    || (yum install -y curl && yum clean all) \
+    || true
+
 RUN mkdir -p /etc/asterisk /var/lib/asterisk/sounds /var/spool/asterisk
 
 COPY conf/modules.conf /etc/asterisk/modules.conf

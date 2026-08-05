@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
-# ============================================================
-# AIBOTS — Ubuntu 22.04 / 24.04 setup (repo already on disk)
-#
-# Prefer one-liner from GitHub:
+# Local-tree installer (Ubuntu / Debian). Prefer:
 #   curl -fsSL https://raw.githubusercontent.com/xceedconnections/aibots/main/install.sh | sudo bash
-#
-# Or after clone:
-#   sudo bash scripts/install-ubuntu.sh
-# ============================================================
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/aibots}"
-# When invoked from install.sh, REPO_DIR is the cloned source.
-# When invoked from a local checkout, use parent of scripts/.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-xceedconnections@gmail.com}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-Openaccount@123}"
 
-echo "==> AIBOTS installer"
+echo "==> AIBOTS installer (local tree)"
 echo "    Source: $REPO_DIR"
 echo "    Target: $APP_DIR"
 
@@ -26,26 +19,30 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+. /etc/os-release
+echo "==> OS: ${PRETTY_NAME:-$ID}"
 
-echo "==> Updating apt"
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg lsb-release git ufw jq rsync openssl
 
-echo "==> Installing Docker"
-if ! command -v docker >/dev/null 2>&1; then
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-    > /etc/apt/sources.list.d/docker.list
-  apt-get update -y
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+install_docker() {
+  echo "==> Installing Docker via get.docker.com"
+  rm -f /etc/apt/sources.list.d/docker.list
+  rm -f /etc/apt/keyrings/docker.gpg
+  apt-get update -y || true
+  curl -fsSL https://get.docker.com | sh
   systemctl enable --now docker
+  docker compose version >/dev/null 2>&1 || apt-get install -y docker-compose-plugin || true
+}
+
+if ! command -v docker >/dev/null 2>&1; then
+  install_docker
+elif ! docker compose version >/dev/null 2>&1; then
+  install_docker
+else
+  echo "==> Docker OK: $(docker --version)"
 fi
 
-echo "==> Copying project to $APP_DIR"
 mkdir -p "$APP_DIR"
 rsync -a \
   --exclude '.git' \
@@ -54,72 +51,99 @@ rsync -a \
   --exclude '.venv' \
   --exclude 'data/models' \
   --exclude 'data/recordings' \
+  --exclude 'data/asterisk' \
   "$REPO_DIR/" "$APP_DIR/"
 
-mkdir -p "$APP_DIR/data/models/piper" "$APP_DIR/data/recordings"
+mkdir -p "$APP_DIR/data/models/piper" "$APP_DIR/data/recordings" "$APP_DIR/data/asterisk"
 chmod +x "$APP_DIR"/scripts/*.sh "$APP_DIR"/install.sh 2>/dev/null || true
+
+if [[ ! -f "$APP_DIR/data/asterisk/pjsip_identify.conf" ]]; then
+  cat > "$APP_DIR/data/asterisk/pjsip_identify.conf" <<'EOF'
+; Auto-generated — IP-based VICIdial peers (no SIP registration)
+[vicidial-identify]
+type=identify
+endpoint=vicidial
+EOF
+fi
 
 cd "$APP_DIR"
 
-SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-SERVER_IP="${SERVER_IP:-127.0.0.1}"
+DETECT_IP="$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
+LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
+PUBLIC_IP="${PUBLIC_IP:-${DETECT_IP:-$LOCAL_IP}}"
+VICIDIAL_IP="${VICIDIAL_IP:-}"
+SIP_PASS="${AIBOTS_SIP_PASSWORD:-aibotsSipPass123}"
+SECRET="$(openssl rand -hex 32)"
+DB_PASS="$(openssl rand -hex 12)"
 
-if [[ ! -f .env ]]; then
-  cp .env.example .env
-  sed -i "s|YOUR_SERVER_IP|$SERVER_IP|g" .env
-  SECRET=$(openssl rand -hex 32)
-  sed -i "s|change-me-to-a-long-random-string|$SECRET|g" .env
-  echo "==> Created .env with SERVER_IP=$SERVER_IP"
-  echo "    EDIT .env and set VICIDIAL_* + ADMIN_PASSWORD before production use"
-else
-  echo "==> Keeping existing .env"
+[[ -f .env ]] || cp .env.example .env
+
+set_env() {
+  local key="$1" val="$2"
+  if grep -q "^${key}=" .env 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" .env
+  else
+    echo "${key}=${val}" >> .env
+  fi
+}
+
+set_env "SECRET_KEY" "$SECRET"
+set_env "PUBLIC_IP" "$PUBLIC_IP"
+set_env "AIBOTS_SIP_PASSWORD" "$SIP_PASS"
+set_env "ASTERISK_AMI_HOST" "${VICIDIAL_IP:-127.0.0.1}"
+set_env "ADMIN_EMAIL" "$ADMIN_EMAIL"
+set_env "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
+set_env "POSTGRES_PASSWORD" "$DB_PASS"
+set_env "DATABASE_URL" "postgresql+asyncpg://aibots:${DB_PASS}@postgres:5432/aibots"
+set_env "SIMULATE_MODE" "true"
+set_env "SIP_MODE" "ip"
+
+sed -i "s|YOUR_AIBOTS_PUBLIC_IP|${PUBLIC_IP}|g" .env
+sed -i "s|YOUR_VICIDIAL_IP|${VICIDIAL_IP:-127.0.0.1}|g" .env
+sed -i "s|YOUR_SERVER_IP|${LOCAL_IP}|g" .env
+sed -i "s|change-me-to-a-long-random-string|${SECRET}|g" .env
+
+if [[ -n "${VICIDIAL_IP}" ]]; then
+  cat > "$APP_DIR/data/asterisk/pjsip_identify.conf" <<EOF
+; Auto-generated — IP-based VICIdial peers (no SIP registration)
+[vicidial-identify]
+type=identify
+endpoint=vicidial
+match=${VICIDIAL_IP}
+EOF
 fi
 
-echo "==> Opening firewall ports (22, 80, 3000, 8000, 11434)"
 ufw allow OpenSSH || true
 ufw allow 80/tcp || true
 ufw allow 3000/tcp || true
 ufw allow 8000/tcp || true
-ufw allow 11434/tcp || true
+ufw allow 5060/udp || true
+ufw allow 5060/tcp || true
+ufw allow 10000:10100/udp || true
 ufw --force enable || true
 
-echo "==> Building and starting containers (this can take several minutes)"
 docker compose pull || true
 docker compose build
 docker compose up -d
 
-echo "==> Waiting for API health"
 for i in $(seq 1 90); do
-  if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
-    echo "API is up"
-    break
-  fi
+  curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
   sleep 3
 done
 
-echo "==> Pulling LLM model into Ollama (qwen2.5:7b-instruct) — large download"
-docker exec aibots-ollama ollama pull qwen2.5:7b-instruct || \
-  echo "WARN: ollama pull failed — run later: docker exec aibots-ollama ollama pull qwen2.5:7b-instruct"
+if [[ "${SKIP_MODELS:-0}" != "1" ]]; then
+  docker exec aibots-ollama ollama pull qwen2.5:7b-instruct || true
+  PIPER_DIR="$APP_DIR/data/models/piper" bash "$APP_DIR/scripts/download-models.sh" || true
+fi
 
-echo "==> Downloading Piper voice model"
-PIPER_DIR="$APP_DIR/data/models/piper" bash "$APP_DIR/scripts/download-models.sh" || true
+cat > "$APP_DIR/INSTALL-INFO.txt" <<EOF
+Portal: http://${LOCAL_IP}:3000
+Login:  ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}
+PUBLIC_IP=${PUBLIC_IP}
+SIP_MODE=ip
+EOF
+chmod 600 "$APP_DIR/INSTALL-INFO.txt"
 
-echo ""
-echo "============================================================"
-echo " AIBOTS is installed"
-echo "============================================================"
-echo " Portal:   http://$SERVER_IP:3000"
-echo " API:      http://$SERVER_IP:8000"
-echo " API docs: http://$SERVER_IP:8000/docs"
-echo " Nginx:    http://$SERVER_IP/"
-echo ""
-echo " Login:    xceedconnections@gmail.com / (see ADMIN_PASSWORD in .env)"
-echo ""
-echo " Next:"
-echo "  1. Edit $APP_DIR/.env  (VICIdial URL, passwords, VITE_API_URL)"
-echo "  2. cd $APP_DIR && docker compose up -d --build portal"
-echo "  3. Open portal → Bots → ACA Qualifier → Run test call"
-echo "  4. Point VICIdial Start URL to:"
-echo "     http://$SERVER_IP/webhook/vicidial/start"
-echo "  5. Docs: https://github.com/xceedconnections/aibots/blob/main/INSTALL.md"
-echo "============================================================"
+echo "Installed. Portal http://${LOCAL_IP}:3000  Login ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
+echo "Add Vicidial dialers later: Portal → VICIdial Servers (IP-based, no registration)"

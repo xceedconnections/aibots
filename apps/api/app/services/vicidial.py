@@ -1,11 +1,13 @@
-"""VICIdial Agent API + Asterisk AMI helpers for call transfer."""
+"""VICIdial helpers — vendor mode uses SIP DID transfer (no Vicidial scripts)."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
+import redis.asyncio as redis
 
 from app.config import get_settings
 
@@ -14,7 +16,7 @@ settings = get_settings()
 
 
 async def vicidial_api(function: str, params: dict) -> str:
-    """Call VICIdial non-agent API (api.php)."""
+    """Optional VICIdial non-agent API (lead updates). Not required for carrier mode."""
     base = settings.vicidial_url.rstrip("/")
     query = {
         "source": settings.vicidial_source,
@@ -35,95 +37,90 @@ async def vicidial_api(function: str, params: dict) -> str:
         return f"ERROR: {exc}"
 
 
+async def mark_sip_transfer(
+    call_id: Optional[str],
+    transfer_did: Optional[str],
+    closer_campaign: Optional[str] = None,
+) -> dict:
+    """
+    Vendor transfer: tell AIBOTS Asterisk dialplan to Dial() the virtual DID
+    back to VICIdial after AudioSocket ends. No AMI on VICIdial required.
+    """
+    if not call_id:
+        return {"ok": False, "reason": "missing call_id"}
+    if not transfer_did:
+        return {"ok": False, "reason": "missing transfer_did"}
+
+    r = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        payload = {
+            "action": "transfer",
+            "transfer_did": transfer_did,
+            "closer_campaign": closer_campaign,
+        }
+        await r.setex(f"aibots:sip:{call_id}:action", 300, json.dumps(payload))
+        # Plain text for Asterisk CURL dialplan
+        await r.setex(f"aibots:sip:{call_id}:xfer", 300, transfer_did)
+        logger.info("Marked SIP transfer uid=%s did=%s", call_id, transfer_did)
+        return {"ok": True, "transfer_did": transfer_did, "mode": "sip_did"}
+    finally:
+        await r.aclose()
+
+
+async def mark_sip_hangup(call_id: Optional[str]) -> dict:
+    if not call_id:
+        return {"ok": False}
+    r = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await r.setex(f"aibots:sip:{call_id}:action", 300, json.dumps({"action": "hangup"}))
+        await r.delete(f"aibots:sip:{call_id}:xfer")
+        return {"ok": True, "action": "hangup"}
+    finally:
+        await r.aclose()
+
+
 async def transfer_to_closer(
     phone: Optional[str] = None,
     lead_id: Optional[str] = None,
     campaign: Optional[str] = None,
     closer_campaign: Optional[str] = None,
     call_id: Optional[str] = None,
+    transfer_did: Optional[str] = None,
 ) -> dict:
     """
-    Request transfer of a live call into a VICIdial closer campaign.
-
-    Uses ra_call_control / transfer_conference style API when available.
-    Falls back to logging the intent so the worker/AMI bridge can act.
+    Primary path: SIP DID transfer via AIBOTS Asterisk dialplan.
+    Optional: best-effort lead comment update if VICIdial API is configured.
     """
-    params = {}
-    if phone:
-        params["phone_number"] = phone
-    if lead_id:
-        params["lead_id"] = lead_id
-    if campaign:
-        params["campaign_id"] = campaign
-    if closer_campaign:
-        params["ingrouproup_ingroup"] = closer_campaign
-        params["ingroupgroup"] = closer_campaign
-    if call_id:
-        params["call_id"] = call_id
+    sip = await mark_sip_transfer(
+        call_id=call_id,
+        transfer_did=transfer_did,
+        closer_campaign=closer_campaign,
+    )
 
-    # Primary: external transfer / ra_call_control if configured on VICIdial
-    result = await vicidial_api("ra_call_control", {
-        **params,
-        "value": "TRANSFER",
-        "agent_user": settings.vicidial_user,
-    })
-
-    ami_ok = await ami_redirect(call_id=call_id, closer_campaign=closer_campaign)
+    lead_update = None
+    if lead_id and settings.vicidial_url and "YOUR_VICIDIAL" not in settings.vicidial_url:
+        try:
+            lead_update = await update_lead_fields(
+                lead_id,
+                {"comments": f"AIBOTS xfer DID={transfer_did} closer={closer_campaign}"[:255]},
+            )
+        except Exception as exc:
+            lead_update = str(exc)
 
     return {
-        "vicidial_response": result,
-        "ami_redirect": ami_ok,
+        "mode": "sip_did",
+        "sip_transfer": sip,
+        "lead_update": lead_update,
         "closer_campaign": closer_campaign,
+        "transfer_did": transfer_did,
         "call_id": call_id,
         "lead_id": lead_id,
+        "phone": phone,
+        "campaign": campaign,
     }
 
 
-async def ami_redirect(call_id: Optional[str], closer_campaign: Optional[str]) -> bool:
-    """
-    Best-effort AMI Redirect. Requires AMI user configured on Asterisk.
-
-    For production you will map closer_campaign → dialplan context/exten.
-    """
-    if not call_id or not closer_campaign:
-        return False
-    try:
-        import socket
-
-        host = settings.asterisk_ami_host
-        port = settings.asterisk_ami_port
-        user = settings.asterisk_ami_user
-        secret = settings.asterisk_ami_secret
-
-        def send(sock, msg: str):
-            sock.sendall(msg.encode("utf-8"))
-
-        with socket.create_connection((host, port), timeout=5) as sock:
-            sock.settimeout(5)
-            # Read banner
-            sock.recv(1024)
-            send(sock, f"Action: Login\r\nUsername: {user}\r\nSecret: {secret}\r\n\r\n")
-            sock.recv(4096)
-            # Redirect channel named by call_id / uniqueid — adjust for your dialplan
-            action = (
-                "Action: Redirect\r\n"
-                f"Channel: {call_id}\r\n"
-                "Context: aibots-transfer\r\n"
-                f"Exten: {closer_campaign}\r\n"
-                "Priority: 1\r\n"
-                "\r\n"
-            )
-            send(sock, action)
-            resp = sock.recv(4096).decode("utf-8", errors="ignore")
-            send(sock, "Action: Logoff\r\n\r\n")
-            logger.info("AMI Redirect response: %s", resp[:300])
-            return "Success" in resp or "Response: Success" in resp
-    except Exception as exc:
-        logger.warning("AMI redirect skipped/failed: %s", exc)
-        return False
-
-
 async def update_lead_fields(lead_id: str, fields: dict) -> str:
-    """Push qualification variables back onto the VICIdial lead."""
+    """Push qualification variables back onto the VICIdial lead (optional)."""
     params = {"lead_id": lead_id, **fields}
     return await vicidial_api("update_lead", params)

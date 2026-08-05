@@ -1,46 +1,59 @@
 # AIBOTS — Self-hosted VICIdial AI Voice Platform
 
-Fully self-hosted AI voice agents for VICIdial:
+Fully self-hosted AI voice agents for VICIdial — **same carrier pattern as commercial AI bots**:
 
 - Portal to create bots, scripts, Q&A, transfer rules
 - Local LLM (Ollama / Qwen) — **no OpenAI**
 - Faster-Whisper STT + Piper TTS
-- Webhook integration with VICIdial
-- Transfer qualified callers to closer campaigns
+- VICIdial integration via **SIP carriers only** (no Vicidial scripts)
+- Transfer qualified callers to closers via **virtual DID**
 
 **Repo:** [github.com/xceedconnections/aibots](https://github.com/xceedconnections/aibots)
 
 ## Integration mode (vendor-style)
 
-Primary integration is **SIP Carrier** (same pattern as commercial AI bots):
+On VICIdial you only configure:
 
-- VICIdial → Carriers → point at AIBOTS SIP
-- No Start Call URL required
-- See **[docs/SIP-CARRIER.md](docs/SIP-CARRIER.md)** and portal page **SIP Carrier**
+1. **AI carrier** — dialplan with `X-VICIdial-*` headers → `Dial(SIP/aibots@AIBOTS_IP)`
+2. **Remote agents** (e.g. 27001)
+3. **Virtual DIDs** → closer in-groups (e.g. 106027001)
+4. Optional **Ctransfer** carrier for Vicidial-side transfer prefixes
 
-## One-line install (Ubuntu)
+No Start Call URL. No custom AGI. No `manager.conf` edits.
+
+See **[docs/SIP-CARRIER.md](docs/SIP-CARRIER.md)** and portal page **SIP Carrier**.
+
+## One-line install (Ubuntu / Debian)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xceedconnections/aibots/main/install.sh | sudo bash
 ```
 
-Full guide: **[INSTALL.md](INSTALL.md)** · VICIdial setup: **[docs/VICIDIAL.md](docs/VICIDIAL.md)** · Deploy notes: **[docs/DEPLOY-UBUNTU.md](docs/DEPLOY-UBUNTU.md)**
+Full guide: **[INSTALL.md](INSTALL.md)** · VICIdial: **[docs/VICIDIAL.md](docs/VICIDIAL.md)** · Carrier: **[docs/SIP-CARRIER.md](docs/SIP-CARRIER.md)**
 
 After install open `http://SERVER_IP:3000`  
-Login: `xceedconnections@gmail.com` / `Openaccount@123`
+Login is printed by the installer (also `/opt/aibots/INSTALL-INFO.txt`).
+
+### Portal (CRM-style, like AI AMD)
+
+- **Dashboard** — live stats  
+- **Campaigns** — AI campaigns + dialplan copy  
+- **Bots / Scripts** — qualification scripts  
+- **VICIdial Servers** — register dialers  
+- **SIP Carrier** — Vicidial carrier paste pack  
+- **Settings** — PUBLIC_IP, SIP password, defaults  
+- **Calls** — session history  
 
 ## Architecture
 
 ```
-VICIdial ──webhook──► FastAPI API ──queue──► AI Worker
-                           │                    │
-                      PostgreSQL          Whisper / Piper / Ollama
-                      Redis                   │
-                           │                  ▼
-                        Portal ◄──────── Decision Engine
-                                              │
-                                              ▼
-                                    VICIdial API / AMI Transfer
+VICIdial campaign (AI carrier)
+      │  SIP + X-VICIdial-* headers
+      ▼
+AIBOTS Asterisk ──AudioSocket──► AI Worker (Whisper / Qwen / Piper)
+      │
+      ▼ (qualified)
+Dial virtual DID ──► VICIdial inbound DID ──► closer agents
 ```
 
 ## Requirements (Ubuntu AI server)
@@ -74,33 +87,20 @@ sudo bash scripts/install-ubuntu.sh
 
 ```bash
 cp .env.example .env
-# edit YOUR_SERVER_IP, secrets, VICIdial settings
+# set PUBLIC_IP, AIBOTS_SIP_PASSWORD, ASTERISK_AMI_HOST=VICIdial IP
 
 docker compose up -d --build
 docker exec aibots-ollama ollama pull qwen2.5:7b-instruct
 bash scripts/download-models.sh
-bash scripts/test-call.sh
-docker logs -f aibots-worker
 ```
 
 ## Portal workflow
 
 1. Sign in
-2. Open **Bots** — sample **ACA Qualifier** is seeded
-3. Edit questions / answers / actions (`continue`, `transfer`, `hangup`)
-4. Set **campaign** + **transfer campaign** to match VICIdial
-5. Click **Run test call** (simulate mode walks the script)
-6. Watch **Calls** + worker logs
-
-## VICIdial
-
-See [docs/VICIDIAL.md](docs/VICIDIAL.md).
-
-Webhook:
-
-```
-http://AIBOTS_IP/webhook/vicidial/start?campaign=ACA2026&bot_id=1
-```
+2. Open **SIP Carrier** — copy Vicidial dialplan / peer settings
+3. Open **Bots** — set **Client ID**, **Remote Agent**, **Transfer DID**
+4. Edit questions / answers (`continue`, `transfer`, `hangup`)
+5. **Run test call** (simulate) or dial live through the Vicidial carrier
 
 ## Stack
 
@@ -112,32 +112,30 @@ http://AIBOTS_IP/webhook/vicidial/start?campaign=ACA2026&bot_id=1
 | LLM | Ollama · Qwen2.5 7B Instruct |
 | STT | Faster-Whisper |
 | TTS | Piper |
-| Telephony | VICIdial Agent API + Asterisk AMI |
+| Telephony | Asterisk PJSIP + AudioSocket (SIP carrier) |
 
 ## Project layout
 
 ```
 AIBOTS/
-├── install.sh        # curl | bash entrypoint
-├── apps/api          # FastAPI control plane
-├── apps/worker       # Per-call STT→NLU→TTS worker
-├── apps/portal       # Admin UI
-├── docker/nginx
-├── scripts/          # Ubuntu install + helpers
+├── install.sh
+├── apps/api
+├── apps/worker
+├── apps/portal
+├── docker/asterisk
+├── scripts/
 └── docs/
 ```
 
 ## Simulate vs live audio
 
-Default: `SIMULATE_MODE=true` on the worker — validates scripts and transfer without RTP.
-
-When Asterisk media bridge is ready, set `SIMULATE_MODE=false` and publish customer audio paths to Redis list `aibots:call:{id}:audio`.
+`SIMULATE_MODE=true` keeps portal test calls working. Live SIP INVITEs set `simulate=false` automatically.
 
 ## GPU (optional)
 
-In `docker-compose.yml`, uncomment the `ollama` GPU deploy section and install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+In `docker-compose.yml`, uncomment the `ollama` GPU deploy section and install [NVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-container-toolkit).
 
-Also set in `.env`:
+Also set:
 
 ```
 WHISPER_DEVICE=cuda
