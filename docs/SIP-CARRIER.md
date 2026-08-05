@@ -56,7 +56,7 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${phone_number})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-a)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27001)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${campaign_id})
-same => n,Dial(SIP/aibots@YOUR_AIBOTS_IP)
+same => n,Dial(SIP/aibots,60,tT)
 same => n,Hangup()
 
 exten => _27002,1,AGI(agi://127.0.0.1:4577/call_log)
@@ -66,11 +66,13 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${phone_number})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-b)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27016)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${campaign_id})
-same => n,Dial(SIP/aibots@YOUR_AIBOTS_IP)
+same => n,Dial(SIP/aibots,60,tT)
 same => n,Hangup()
 ```
 
-Globals example: `SIP/aibots@YOUR_AIBOTS_IP`
+Peer `[aibots]` must have `host=AIBOTS_PUBLIC_IP`. Prefer `Dial(SIP/aibots)` — avoid `@IP` unless that IP is correct.
+
+**Critical:** Portal → VICIdial Servers must list the Vicibox **public** SIP source IP (what AIBOTS sees on UDP/5060). Private LAN IPs in the allow-list will drop the INVITE — portal Calls stays empty and there is no bot audio.
 
 On VICIdial Asterisk, SIP peer toward AIBOTS (portal **SIP Carrier** shows exact text):
 

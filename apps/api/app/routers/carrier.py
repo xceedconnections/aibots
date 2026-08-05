@@ -71,7 +71,7 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${{phone_number}})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-a)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27001)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${{campaign_id}})
-same => n,Dial(SIP/aibots@{public_ip})
+same => n,Dial(SIP/aibots,60,tT)
 same => n,Hangup()
 
 exten => _27002,1,AGI(agi://127.0.0.1:4577/call_log)
@@ -81,7 +81,7 @@ same => n,SIPAddHeader(X-VICIdial-Caller-Id: ${{phone_number}})
 same => n,SIPAddHeader(X-VICIdial-Client-Id: CID_0006-b)
 same => n,SIPAddHeader(X-VICIdial-User-Id: 27016)
 same => n,SIPAddHeader(X-VICIdial-Campaign-Id: ${{campaign_id}})
-same => n,Dial(SIP/aibots@{public_ip})
+same => n,Dial(SIP/aibots,60,tT)
 same => n,Hangup()"""
 
     xfer_dialplan = """exten => _37000,1,AGI(agi://127.0.0.1:4577/call_log)
@@ -112,23 +112,22 @@ same => n,Hangup()"""
         closer_hint="Create virtual DIDs (e.g. 106027001) routed to closer in-groups. Set bot Transfer DID to match.",
         vicidial_carrier_account_entry="AIBOTS",
         vicidial_carrier_protocol="SIP",
-        vicidial_carrier_globals=f"SIP/aibots@{public_ip}",
+        vicidial_carrier_globals="SIP/aibots",
         vicidial_ai_carrier_dialplan=ai_dialplan,
         vicidial_transfer_carrier_dialplan=xfer_dialplan,
         vicidial_server_ip_peer=peer,
         allowed_vicidial_ips=allowed,
         vicidial_steps=[
-            "Install AIBOTS first — you can add Vicidial servers later in Portal → VICIdial Servers.",
-            "Add each dialer by IP (sip_ip). AIBOTS trusts those IPs only — no SIP registration.",
-            "On each Vicidial Asterisk: paste the IP peer ([aibots] host=AIBOTS_IP type=peer insecure=port,invite).",
-            "Admin → Carriers → Add AIBOTS (Globals SIP/aibots@AIBOTS_IP) + dialplan with X-VICIdial headers.",
+            "Install AIBOTS first — add Vicidial servers in Portal → VICIdial Servers (PUBLIC SIP IP).",
+            "On Vicidial Asterisk: paste IP peer [aibots] host=AIBOTS_PUBLIC_IP type=peer insecure=port,invite.",
+            "Admin → Carriers → dialplan with X-VICIdial headers and Dial(SIP/aibots) — peer host= is enough.",
             "Create remote agents + virtual DIDs → closer in-groups.",
             "Assign carrier to campaign. No scripts. No register lines.",
         ],
         notes=[
             "Carriers are IP-based (same as commercial AI bots) — not SIP registration.",
-            "Add multiple Vicidial boxes anytime in Portal → VICIdial Servers.",
-            "AIBOTS Asterisk identify match= list is rebuilt when you add/remove servers.",
+            "Portal sip_ip must be the Vicibox PUBLIC address AIBOTS sees on UDP/5060.",
+            "Firewall allow-list drops wrong IPs (empty Calls + no bot audio). Use AIBOTS_SIP_OPEN=1 to debug.",
             "Open UDP 5060 + RTP 10000-10100 from each Vicidial IP to AIBOTS.",
         ],
     )

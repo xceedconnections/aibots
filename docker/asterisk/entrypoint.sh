@@ -12,13 +12,14 @@ sed -i "s|VICIDIAL_IP|${VICIDIAL_IP}|g" /etc/asterisk/pjsip.conf
 sed -i "s|AIBOTS_AMI_SECRET|${AMI_SECRET}|g" /etc/asterisk/manager.conf
 
 # Ensure identify file exists (mounted from host data/asterisk)
-if [[ ! -f /etc/asterisk/pjsip_identify.conf ]]; then
+# Catch-all match: firewall allow-list is the real ACL.
+if [[ ! -f /etc/asterisk/pjsip_identify.conf ]] || ! grep -q 'match=0.0.0.0/0' /etc/asterisk/pjsip_identify.conf 2>/dev/null; then
   cat > /etc/asterisk/pjsip_identify.conf <<EOF
-; IP-based VICIdial peers — no SIP registration
+; IP-based VICIdial — catch-all (firewall enforces source IP)
 [vicidial-identify]
 type=identify
 endpoint=vicidial
-match=${VICIDIAL_IP}
+match=0.0.0.0/0
 EOF
 fi
 
@@ -26,6 +27,8 @@ command -v curl >/dev/null || true
 
 echo "==> Dialplan AudioSocket check:"
 grep -n "AudioSocket\|new-uuid\|from-vicidial" /etc/asterisk/extensions.conf | head -20 || true
+echo "==> Identify:"
+cat /etc/asterisk/pjsip_identify.conf || true
 
 # Quick DNS check for AI worker (AudioSocket target)
 getent hosts worker 2>/dev/null || ping -c1 -W1 worker 2>/dev/null || echo "WARN: cannot resolve worker"

@@ -147,12 +147,15 @@ services:
       - worker
 
   # Only portal Vicidial IPs may hit SIP 5060 + RTP 10000-10100
+  # Set AIBOTS_SIP_OPEN=1 in .env to temporarily allow all (debug blank calls)
   firewall:
     image: alpine:3.20
     container_name: aibots-firewall
     restart: unless-stopped
     network_mode: host
     privileged: true
+    environment:
+      AIBOTS_SIP_OPEN: ${AIBOTS_SIP_OPEN:-0}
     volumes:
       - ./data/asterisk/allowed_ips.txt:/allowed_ips.txt:ro
       - ./scripts/sync-firewall-iptables.sh:/sync.sh:ro

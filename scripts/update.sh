@@ -64,6 +64,24 @@ else
   echo 'SIMULATE_MODE=false' >> .env
 fi
 
+# Temporarily open SIP firewall so a wrong Vicibox IP in the allow-list cannot
+# silently drop INVITEs (blank AI audio + empty portal Calls). Tighten later:
+# set AIBOTS_SIP_OPEN=0 and put Vicibox PUBLIC IP in Portal → VICIdial Servers.
+if grep -q '^AIBOTS_SIP_OPEN=' .env 2>/dev/null; then
+  sed -i 's/^AIBOTS_SIP_OPEN=.*/AIBOTS_SIP_OPEN=1/' .env
+else
+  echo 'AIBOTS_SIP_OPEN=1' >> .env
+fi
+
+# Ensure PJSIP identify catch-all (firewall is the real ACL)
+cat > "$APP_DIR/data/asterisk/pjsip_identify.conf" <<'EOF'
+; Auto-fixed by update.sh — firewall enforces source IP
+[vicidial-identify]
+type=identify
+endpoint=vicidial
+match=0.0.0.0/0
+EOF
+
 echo "==> Ensuring Piper TTS models"
 if [[ -x "$APP_DIR/scripts/download-models.sh" ]]; then
   PIPER_DIR="$APP_DIR/data/models/piper" bash "$APP_DIR/scripts/download-models.sh" || true
