@@ -79,14 +79,18 @@ On VICIdial Asterisk, SIP peer toward AIBOTS (portal **SIP Carrier** shows exact
 ```
 [aibots]
 host=YOUR_AIBOTS_IP
-username=aibots
-secret=aibotsSipPass123
 type=peer
 disallow=all
 allow=ulaw
 insecure=port,invite
 nat=force_rport,comedia
+qualify=yes
+; DO NOT set username= or secret= — that causes:
+;   Failed to authenticate on INVITE → CONGESTION → instant hangup
 ```
+
+Also fix DNS if logs show `Unable to lookup 'vicibox9'`:
+`echo '127.0.0.1 vicibox9' >> /etc/hosts` (or the real LAN IP).
 
 ## VICIdial — virtual DIDs
 

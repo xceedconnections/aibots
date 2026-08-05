@@ -131,8 +131,10 @@ async def rebuild_asterisk_identify(db: AsyncSession) -> str:
 
 
 def vicidial_ip_peer_snippet(aibots_public_ip: str, peer_name: str = "aibots") -> str:
-    """chan_sip peer text for Vicidial Asterisk — IP trunk, no register."""
+    """chan_sip peer text for Vicidial Asterisk — IP trunk, no register, no auth."""
     return (
+        f"; AIBOTS IP trunk — paste into Vicibox sip.conf / sip-vicidial.conf\n"
+        f"; CRITICAL: do NOT set username= or secret= (causes Failed to authenticate / CONGESTION)\n"
         f"[{peer_name}]\n"
         f"host={aibots_public_ip}\n"
         f"type=peer\n"
@@ -141,5 +143,7 @@ def vicidial_ip_peer_snippet(aibots_public_ip: str, peer_name: str = "aibots") -
         f"allow=ulaw\n"
         f"insecure=port,invite\n"
         f"nat=force_rport,comedia\n"
-        f"; NO register => line — IP-based only\n"
+        f"qualify=yes\n"
+        f"qualifyfreq=60\n"
+        f"; NO username / secret / fromuser / register =>\n"
     )

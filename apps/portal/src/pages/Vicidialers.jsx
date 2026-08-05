@@ -147,7 +147,7 @@ export default function Vicidialers() {
         </div>
         <pre className="block mono">{peer}</pre>
         <p className="hint">
-          Carrier Globals: <span className="mono">SIP/aibots@{carrier?.public_ip || 'AIBOTS_IP'}</span>
+          Carrier Globals: <span className="mono">SIP/aibots</span> (peer host={carrier?.public_ip || 'AIBOTS_IP'})
           {' '}· then use Portal → SIP Carrier for full dialplan.
         </p>
       </section>
